@@ -148,6 +148,20 @@ func startNewServer() {
 	httpOnce.Do(startHttpServer)
 }
 
+func startNewServerWithInterceptor(interceptor ServerInterceptor) {
+	newServer = NewServerWithOpts(WithServerInterceptor(interceptor))
+
+	newServer.Register(new(Arith))
+	newServer.Register(new(Embed))
+	newServer.RegisterName("net.rpc.Arith", new(Arith))
+	newServer.RegisterName("newServer.Arith", new(Arith))
+
+	var l net.Listener
+	l, newServerAddr = listenTCP()
+	log.Println("NewServer test RPC server listening on", newServerAddr)
+	go newServer.Accept(l)
+}
+
 func startHttpServer() {
 	server := httptest.NewServer(nil)
 	httpServerAddr = server.Listener.Addr().String()
@@ -453,6 +467,22 @@ func TestServeRequest(t *testing.T) {
 	testServeRequest(t, nil)
 	newOnce.Do(startNewServer)
 	testServeRequest(t, newServer)
+}
+
+func TestServeRequestWithInterceptor(t *testing.T) {
+	a := 1
+	interceptor := ServerInterceptor(func(serviceMethod string, argv, replyv reflect.Value, handler func()) {
+		a = 2
+		handler()
+	})
+
+	startNewServerWithInterceptor(interceptor)
+
+	testServeRequest(t, newServer)
+
+	if  a != 2 {
+		t.Errorf("expected interceptor to modify a's value")
+	}
 }
 
 func testServeRequest(t *testing.T, server *Server) {
