@@ -197,7 +197,7 @@ type Server struct {
 
 // NewServer returns a new Server.
 func NewServer() *Server {
-	return &Server{}
+	return NewServerWithOpts()
 }
 
 // NewServerWithOpts returns a new Server with the following functional options.
