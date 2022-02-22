@@ -217,7 +217,7 @@ func WithServerInterceptor(interceptor ServerInterceptor) func(*Server) {
 
 // ServerInterceptor acts a middleware hook on the server side of the RPC call. The interceptor must
 // invoke the handler argument for the RPC request to continue.
-type ServerInterceptor func(serviceMethod string, argv, replyv reflect.Value, handler func())
+type ServiceCallInterceptor func(serviceMethod string, argv, replyv reflect.Value, handler func())
 
 // DefaultServer is the default instance of *Server.
 var DefaultServer = NewServer()
