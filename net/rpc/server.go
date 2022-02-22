@@ -192,7 +192,7 @@ type Server struct {
 	respLock   sync.Mutex // protects freeResp
 	freeResp   *Response
 
-	serverInterceptor ServerInterceptor
+	serverServiceCallInterceptor ServerServiceCallInterceptor
 }
 
 // NewServer returns a new Server.
@@ -209,15 +209,16 @@ func NewServerWithOpts(options... func(*Server)) *Server {
 	return s
 }
 
-func WithServerInterceptor(interceptor ServerInterceptor) func(*Server) {
+func WithServerServiceCallInterceptor(interceptor ServerServiceCallInterceptor) func(*Server) {
 	return func(s *Server) {
-		s.serverInterceptor = interceptor
+		s.serverServiceCallInterceptor = interceptor
 	}
 }
 
-// ServerInterceptor acts a middleware hook on the server side of the RPC call. The interceptor must
+// ServerServiceCallInterceptor acts a middleware hook on the server side of the RPC call. The interceptor must
 // invoke the handler argument for the RPC request to continue.
-type ServiceCallInterceptor func(serviceMethod string, argv, replyv reflect.Value, handler func())
+// ServiceCallInterceptor
+type ServerServiceCallInterceptor func(serviceMethod string, argv, replyv reflect.Value, handler func())
 
 // DefaultServer is the default instance of *Server.
 var DefaultServer = NewServer()
@@ -522,8 +523,8 @@ func (server *Server) ServeRequest(codec ServerCodec) error {
 
 		service.call(server, sending, nil, mtype, req, argv, replyv, codec)
 	}
-	if server.serverInterceptor != nil {
-		server.serverInterceptor(mtype.method.Name, argv, replyv, handler)
+	if server.serverServiceCallInterceptor != nil {
+		server.serverServiceCallInterceptor(mtype.method.Name, argv, replyv, handler)
 	} else {
 		handler()
 	}

@@ -148,8 +148,8 @@ func startNewServer() {
 	httpOnce.Do(startHttpServer)
 }
 
-func startNewServerWithInterceptor(interceptor ServerInterceptor) {
-	newServer = NewServerWithOpts(WithServerInterceptor(interceptor))
+func startNewServerWithInterceptor(interceptor ServerServiceCallInterceptor) {
+	newServer = NewServerWithOpts(WithServerServiceCallInterceptor(interceptor))
 
 	newServer.Register(new(Arith))
 	newServer.Register(new(Embed))
@@ -471,7 +471,7 @@ func TestServeRequest(t *testing.T) {
 
 func TestServeRequestWithInterceptor(t *testing.T) {
 	a := 1
-	interceptor := ServerInterceptor(func(serviceMethod string, argv, replyv reflect.Value, handler func()) {
+	interceptor := ServerServiceCallInterceptor(func(serviceMethod string, argv, replyv reflect.Value, handler func()) {
 		a = 2
 		handler()
 	})
