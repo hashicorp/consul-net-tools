@@ -472,8 +472,30 @@ func TestServeRequest(t *testing.T) {
 func TestServeRequestWithInterceptor(t *testing.T) {
 	a := 1
 	interceptor := ServerServiceCallInterceptor(func(serviceMethod string, argv, replyv reflect.Value, handler func()) {
+		// we will assert on a's value later
 		a = 2
+
+		// these values come from startNewServerWithInterceptor() wiring
+		// todo -- intercept more not just the service method
+		if serviceMethod != "Add" {
+			t.Errorf("expected serviceMethod in interceptor to be \"Arith\". Was: %s", serviceMethod)
+		}
+
+		// argv, replyv reflect.Value,
+		actualArgs := argv.Interface().(Args)
+
+		if actualArgs.A != 7 || actualArgs.B != 8 {
+			t.Errorf("expected args in interceptor to be {7, 8}. Was: %+v", actualArgs)
+		}
+
+		// let the RPC req happen
 		handler()
+
+		actualReply := replyv.Elem().Interface().(Reply)
+		if actualReply.C != 15 {
+			t.Errorf("expected result in interceptor to be 15. Was %d", actualReply.C)
+		}
+
 	})
 
 	startNewServerWithInterceptor(interceptor)

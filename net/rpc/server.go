@@ -519,10 +519,9 @@ func (server *Server) ServeRequest(codec ServerCodec) error {
 	}
 
 	handler :=  func() {
-		service, mtype, req, argv, replyv := service, mtype, req, argv, replyv // capture
-
 		service.call(server, sending, nil, mtype, req, argv, replyv, codec)
 	}
+
 	if server.serverServiceCallInterceptor != nil {
 		server.serverServiceCallInterceptor(mtype.method.Name, argv, replyv, handler)
 	} else {
