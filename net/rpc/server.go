@@ -201,7 +201,7 @@ func NewServer() *Server {
 }
 
 // NewServerWithOpts returns a new Server with the following functional options.
-func NewServerWithOpts(options... func(*Server)) *Server {
+func NewServerWithOpts(options ...func(*Server)) *Server {
 	s := &Server{}
 	for _, option := range options {
 		option(s)
@@ -504,20 +504,35 @@ func (server *Server) ServeCodec(codec ServerCodec) {
 // It does not close the codec upon completion.
 func (server *Server) ServeRequest(codec ServerCodec) error {
 	sending := new(sync.Mutex)
-	service, mtype, req, argv, replyv, keepReading, err := server.readRequest(codec)
+
+	req := server.getRequest()
+	err := codec.ReadRequestHeader(req)
 	if err != nil {
-		if !keepReading {
+		if err == io.EOF || err == io.ErrUnexpectedEOF {
 			return err
 		}
-		// send a response if we actually managed to read a header.
-		if req != nil {
-			server.sendResponse(sending, req, invalidRequest, codec, err.Error())
-			server.freeRequest(req)
-		}
+		// TODO: fmt.Errorf
+		return errors.New("rpc: server cannot decode request: " + err.Error())
+	}
+
+	service, mtype, err := server.findServiceMethodFromRequest(req)
+	if err != nil {
+		// discard body
+		_ = codec.ReadRequestBody(nil)
+
+		server.sendResponse(sending, req, invalidRequest, codec, err.Error())
+		server.freeRequest(req)
 		return err
 	}
 
-	handler :=  func() {
+	argv, replyv, err := server.readRequestBody(codec, mtype)
+	if err != nil {
+		server.sendResponse(sending, req, invalidRequest, codec, err.Error())
+		server.freeRequest(req)
+		return err
+	}
+
+	handler := func() {
 		service.call(server, sending, nil, mtype, req, argv, replyv, codec)
 	}
 
@@ -580,7 +595,11 @@ func (server *Server) readRequest(codec ServerCodec) (service *service, mtype *m
 		codec.ReadRequestBody(nil)
 		return
 	}
+	argv, replyv, err = server.readRequestBody(codec, mtype)
+	return
+}
 
+func (server *Server) readRequestBody(codec ServerCodec, mtype *methodType) (argv, replyv reflect.Value, err error) {
 	// Decode the argument value.
 	argIsValue := false // if true, need to indirect before calling.
 	if mtype.ArgType.Kind() == reflect.Ptr {
@@ -625,6 +644,11 @@ func (server *Server) readRequestHeader(codec ServerCodec) (svc *service, mtype 
 	// we can still recover and move on to the next request.
 	keepReading = true
 
+	svc, mtype, err = server.findServiceMethodFromRequest(req)
+	return
+}
+
+func (server *Server) findServiceMethodFromRequest(req *Request) (svc *service, mtype *methodType, err error) {
 	dot := strings.LastIndex(req.ServiceMethod, ".")
 	if dot < 0 {
 		err = errors.New("rpc: service/method request ill-formed: " + req.ServiceMethod)
