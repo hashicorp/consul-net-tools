@@ -338,7 +338,7 @@ func suitableMethods(typ reflect.Type, reportErr bool) map[string]*methodType {
 // contains an error when it is used.
 var invalidRequest = struct{}{}
 
-func (server *Server) sendResponse(sending *sync.Mutex, req *Request, reply interface{}, codec ServerCodec, errmsg string) {
+func (server *Server) sendResponse(req *Request, reply interface{}, codec ServerCodec, errmsg string) {
 	resp := server.getResponse()
 	// Encode the response header
 	resp.ServiceMethod = req.ServiceMethod
@@ -347,12 +347,10 @@ func (server *Server) sendResponse(sending *sync.Mutex, req *Request, reply inte
 		reply = invalidRequest
 	}
 	resp.Seq = req.Seq
-	sending.Lock()
 	err := codec.WriteResponse(resp, reply)
 	if debugLog && err != nil {
 		log.Println("rpc: writing response:", err)
 	}
-	sending.Unlock()
 	server.freeResponse(resp)
 }
 
@@ -363,7 +361,7 @@ func (m *methodType) NumCalls() (n uint) {
 	return n
 }
 
-func (s *service) call(server *Server, sending *sync.Mutex, mtype *methodType, req *Request, argv, replyv reflect.Value, codec ServerCodec) {
+func (s *service) call(server *Server, mtype *methodType, req *Request, argv, replyv reflect.Value, codec ServerCodec) {
 	mtype.Lock()
 	mtype.numCalls++
 	mtype.Unlock()
@@ -376,7 +374,7 @@ func (s *service) call(server *Server, sending *sync.Mutex, mtype *methodType, r
 	if errInter != nil {
 		errmsg = errInter.(error).Error()
 	}
-	server.sendResponse(sending, req, replyv.Interface(), codec, errmsg)
+	server.sendResponse(req, replyv.Interface(), codec, errmsg)
 	server.freeRequest(req)
 }
 
@@ -430,7 +428,6 @@ func (c *gobServerCodec) Close() error {
 // ServeRequest is like ServeCodec but synchronously serves a single request.
 // It does not close the codec upon completion.
 func (server *Server) ServeRequest(codec ServerCodec) error {
-	sending := new(sync.Mutex)
 	service, mtype, req, argv, replyv, keepReading, err := server.readRequest(codec)
 	if err != nil {
 		if !keepReading {
@@ -438,12 +435,12 @@ func (server *Server) ServeRequest(codec ServerCodec) error {
 		}
 		// send a response if we actually managed to read a header.
 		if req != nil {
-			server.sendResponse(sending, req, invalidRequest, codec, err.Error())
+			server.sendResponse(req, invalidRequest, codec, err.Error())
 			server.freeRequest(req)
 		}
 		return err
 	}
-	service.call(server, sending, mtype, req, argv, replyv, codec)
+	service.call(server, mtype, req, argv, replyv, codec)
 	return nil
 }
 
