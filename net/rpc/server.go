@@ -201,7 +201,7 @@ func NewServer() *Server {
 }
 
 // NewServerWithOpts returns a new Server with the following functional options.
-func NewServerWithOpts(options... func(*Server)) *Server {
+func NewServerWithOpts(options ...func(*Server)) *Server {
 	s := &Server{}
 	for _, option := range options {
 		option(s)
