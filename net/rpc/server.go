@@ -517,7 +517,7 @@ func (server *Server) ServeRequest(codec ServerCodec) error {
 		return err
 	}
 
-	handler :=  func() {
+	handler := func() {
 		service.call(server, sending, nil, mtype, req, argv, replyv, codec)
 	}
 

@@ -510,11 +510,11 @@ func TestServeRequestWithInterceptor(t *testing.T) {
 
 	testServeRequest(t, newServer)
 
-	if  beforeHandler != 2 {
+	if beforeHandler != 2 {
 		t.Errorf("expected beforeHandler value to be 2. Was %d", beforeHandler)
 	}
 
-	if  afterHandler != 4 {
+	if afterHandler != 4 {
 		t.Errorf("expected beforeHandler value to be 4. Was %d", afterHandler)
 	}
 }
