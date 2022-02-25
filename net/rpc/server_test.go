@@ -539,6 +539,52 @@ func testServeRequest(t *testing.T, server *Server) {
 	}
 }
 
+func TestServer_ServeRequest(t *testing.T) {
+	var (
+		method string
+		req    reflect.Value
+		resp   reflect.Value
+	)
+
+	interceptor := ServerServiceCallInterceptor(func(reqServiceMethod string, argv, replyv reflect.Value, handler func()) {
+		method, req, resp = reqServiceMethod, argv, replyv
+
+		a := argv.Interface().(Args)
+		a.A = 5 // Does not work, I think because of the CodecEmulator being used in the test
+
+		handler()
+
+		r := replyv.Interface().(*Reply)
+		r.C = 21 // Does work, because an actual pointer is being used
+	})
+
+	startNewServerWithInterceptor(interceptor)
+
+	client := CodecEmulator{server: newServer}
+	defer client.Close()
+
+	args := &Args{7, 8}
+	reply := new(Reply)
+	err := client.Call("Arith.Add", args, reply)
+	if err != nil {
+		t.Errorf("Add: expected no error but got error %v", err)
+	}
+
+	if method != "Arith.Add" {
+		t.Errorf("wrong method: %v", method)
+	}
+
+	actualArgs := req.Interface().(Args)
+	actualReply := resp.Interface().(*Reply)
+
+	if actualArgs.A != 7 || actualArgs.B != 8 {
+		t.Errorf("wrong args: %v", actualArgs)
+	}
+	if actualReply.C != 15 {
+		t.Errorf("wrong reply: %v", actualReply)
+	}
+}
+
 type ReplyNotPointer int
 type ArgNotPublic int
 type ReplyNotPublic int
