@@ -490,7 +490,10 @@ func TestServeRequestWithInterceptor(t *testing.T) {
 		}
 
 		// let the RPC req happen
-		_ = handler()
+		err := handler()
+		if err != nil {
+			t.Errorf("expected handler err to be nil. Was %s", err)
+		}
 
 		actualReply := replyv.Elem().Interface().(Reply)
 		if actualReply.C != 15 {
