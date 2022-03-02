@@ -15,6 +15,17 @@ jobs:
         with:
           version: v1.28.3
           working-directory: ./net/rpc
-          args: --issues-exit-code=0
+          args: |
+            --disable-all \
+            --timeout 10m \
+            --enable gofmt \
+            --enable gosimple \
+            --enable govet \
+            --enable ineffassign \
+            --enable staticcheck \
+            --enable unparam \
+            --rnable unconvert \
+            --verbose
           skip-pkg-cache: true
           skip-build-cache: true
+          only-new-issues: true
