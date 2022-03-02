@@ -384,7 +384,10 @@ func (m *methodType) NumCalls() (n uint) {
 	return n
 }
 
-func (s *service) call(mtype *methodType, argv, replyv reflect.Value) error {
+func (s *service) call(server *Server, sending *sync.Mutex, wg *sync.WaitGroup, mtype *methodType, req *Request, argv, replyv reflect.Value, codec ServerCodec) error {
+	if wg != nil {
+		defer wg.Done()
+	}
 	mtype.Lock()
 	mtype.numCalls++
 	mtype.Unlock()
@@ -393,10 +396,13 @@ func (s *service) call(mtype *methodType, argv, replyv reflect.Value) error {
 	returnValues := function.Call([]reflect.Value{s.rcvr, argv, replyv})
 	// The return value for the method is an error.
 	errInter := returnValues[0].Interface()
+	var callErr error
 	if errInter != nil {
-		return errInter.(error)
+		callErr = errInter.(error)
 	}
-	return nil
+	server.sendResponse(sending, req, replyv.Interface(), codec, callErr)
+	server.freeRequest(req)
+	return callErr
 }
 
 type gobServerCodec struct {
@@ -464,10 +470,7 @@ func (server *Server) ServeRequest(codec ServerCodec) error {
 	}
 
 	handler := func() error {
-		err := service.call(mtype, argv, replyv)
-		server.sendResponse(sending, req, replyv.Interface(), codec, err)
-		server.freeRequest(req)
-		return err
+		return service.call(server, sending, nil, mtype, req, argv, replyv, codec)
 	}
 
 	if server.serverServiceCallInterceptor != nil {
