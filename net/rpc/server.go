@@ -190,6 +190,7 @@ type Server struct {
 	respLock   sync.Mutex // protects freeResp
 	freeResp   *Response
 
+	serverServiceCallRejecter    ServerServiceCallRejecter
 	serverServiceCallInterceptor ServerServiceCallInterceptor
 }
 
@@ -212,6 +213,17 @@ func WithServerServiceCallInterceptor(interceptor ServerServiceCallInterceptor) 
 		s.serverServiceCallInterceptor = interceptor
 	}
 }
+
+func WithServerServiceCallRejecter(rejecter ServerServiceCallRejecter) func(*Server) {
+	return func(s *Server) {
+		s.serverServiceCallRejecter = rejecter
+	}
+}
+
+// ServerServiceCallRejecter acts a pre-flight hook on the server side of the
+// RPC call. If it returns an error then the entire rpc call is rejected in
+// favor of replying with this error instead.
+type ServerServiceCallRejecter func(reqServiceMethod string, argv, replyv reflect.Value) error
 
 // ServerServiceCallInterceptor acts a middleware hook on the server side of the RPC call. The interceptor must
 // invoke the handler argument for the RPC request to continue.
@@ -471,6 +483,16 @@ func (server *Server) ServeRequest(codec ServerCodec) error {
 
 	handler := func() error {
 		return service.call(server, sending, nil, mtype, req, argv, replyv, codec)
+	}
+
+	if server.serverServiceCallRejecter != nil {
+		if rejectErr := server.serverServiceCallRejecter(req.ServiceMethod, argv, replyv); rejectErr != nil {
+			handler = func() error {
+				server.sendResponse(sending, req, invalidRequest, codec, rejectErr)
+				server.freeRequest(req)
+				return rejectErr
+			}
+		}
 	}
 
 	if server.serverServiceCallInterceptor != nil {
