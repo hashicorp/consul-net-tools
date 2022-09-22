@@ -215,7 +215,7 @@ func WithServerServiceCallInterceptor(interceptor ServerServiceCallInterceptor) 
 
 // ServerServiceCallInterceptor acts a middleware hook on the server side of the RPC call. The interceptor must
 // invoke the handler argument for the RPC request to continue.
-type ServerServiceCallInterceptor func(reqServiceMethod string, argv, replyv reflect.Value, handler func() error)
+type ServerServiceCallInterceptor func(reqServiceMethod string, argv, replyv reflect.Value, handler func() error) error
 
 // DefaultServer is the default instance of *Server.
 var DefaultServer = NewServer()
@@ -384,10 +384,7 @@ func (m *methodType) NumCalls() (n uint) {
 	return n
 }
 
-func (s *service) call(server *Server, sending *sync.Mutex, wg *sync.WaitGroup, mtype *methodType, req *Request, argv, replyv reflect.Value, codec ServerCodec) error {
-	if wg != nil {
-		defer wg.Done()
-	}
+func (s *service) call(mtype *methodType, argv, replyv reflect.Value) error {
 	mtype.Lock()
 	mtype.numCalls++
 	mtype.Unlock()
@@ -400,8 +397,6 @@ func (s *service) call(server *Server, sending *sync.Mutex, wg *sync.WaitGroup, 
 	if errInter != nil {
 		callErr = errInter.(error)
 	}
-	server.sendResponse(sending, req, replyv.Interface(), codec, callErr)
-	server.freeRequest(req)
 	return callErr
 }
 
@@ -470,15 +465,22 @@ func (server *Server) ServeRequest(codec ServerCodec) error {
 	}
 
 	handler := func() error {
-		return service.call(server, sending, nil, mtype, req, argv, replyv, codec)
+		return service.call(mtype, argv, replyv)
 	}
 
+	var callErr error
 	if server.serverServiceCallInterceptor != nil {
-		server.serverServiceCallInterceptor(req.ServiceMethod, argv, replyv, handler)
+		callErr = server.serverServiceCallInterceptor(req.ServiceMethod, argv, replyv, handler)
 	} else {
-		// service.call errors are sent to the client, not returned to the caller
-		_ = handler()
+		callErr = handler()
 	}
+
+	var rsp interface{} = replyv.Interface()
+	if callErr != nil {
+		rsp = invalidRequest
+	}
+	server.sendResponse(sending, req, rsp, codec, callErr)
+	server.freeRequest(req)
 
 	return nil
 }
