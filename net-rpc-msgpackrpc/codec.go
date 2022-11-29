@@ -3,6 +3,7 @@ package msgpackrpc
 import (
 	"bufio"
 	"io"
+	"net"
 	"sync"
 
 	"github.com/hashicorp/consul-net-rpc/go-msgpack/codec"
@@ -18,7 +19,7 @@ var (
 // using the msgpack encoding
 type MsgpackCodec struct {
 	closed    bool
-	conn      io.ReadWriteCloser
+	conn      net.Conn
 	bufR      *bufio.Reader
 	bufW      *bufio.Writer
 	enc       *codec.Encoder
@@ -29,14 +30,14 @@ type MsgpackCodec struct {
 // NewCodec returns a MsgpackCodec that can be used as either a Client or Server
 // rpc Codec using a default handle. It also provides controls for enabling and
 // disabling buffering for both reads and writes.
-func NewCodec(bufReads, bufWrites bool, conn io.ReadWriteCloser) *MsgpackCodec {
+func NewCodec(bufReads, bufWrites bool, conn net.Conn) *MsgpackCodec {
 	return NewCodecFromHandle(bufReads, bufWrites, conn, msgpackHandle)
 }
 
 // NewCodecFromHandle returns a MsgpackCodec that can be used as either a Client
 // or Server rpc Codec using the passed handle. It also provides controls for
 // enabling and disabling buffering for both reads and writes.
-func NewCodecFromHandle(bufReads, bufWrites bool, conn io.ReadWriteCloser,
+func NewCodecFromHandle(bufReads, bufWrites bool, conn net.Conn,
 	h *codec.MsgpackHandle) *MsgpackCodec {
 	cc := &MsgpackCodec{
 		conn: conn,
@@ -57,6 +58,7 @@ func NewCodecFromHandle(bufReads, bufWrites bool, conn io.ReadWriteCloser,
 }
 
 func (cc *MsgpackCodec) ReadRequestHeader(r *rpc.Request) error {
+	r.SourceAddr = cc.conn.RemoteAddr()
 	return cc.read(r)
 }
 

@@ -3,126 +3,126 @@
 // license that can be found in the LICENSE file.
 
 /*
-	Package rpc provides access to the exported methods of an object across a
-	network or other I/O connection.  A server registers an object, making it visible
-	as a service with the name of the type of the object.  After registration, exported
-	methods of the object will be accessible remotely.  A server may register multiple
-	objects (services) of different types but it is an error to register multiple
-	objects of the same type.
+Package rpc provides access to the exported methods of an object across a
+network or other I/O connection.  A server registers an object, making it visible
+as a service with the name of the type of the object.  After registration, exported
+methods of the object will be accessible remotely.  A server may register multiple
+objects (services) of different types but it is an error to register multiple
+objects of the same type.
 
-	Only methods that satisfy these criteria will be made available for remote access;
-	other methods will be ignored:
+Only methods that satisfy these criteria will be made available for remote access;
+other methods will be ignored:
 
-		- the method's type is exported.
-		- the method is exported.
-		- the method has two arguments, both exported (or builtin) types.
-		- the method's second argument is a pointer.
-		- the method has return type error.
+  - the method's type is exported.
+  - the method is exported.
+  - the method has two arguments, both exported (or builtin) types.
+  - the method's second argument is a pointer.
+  - the method has return type error.
 
-	In effect, the method must look schematically like
+In effect, the method must look schematically like
 
-		func (t *T) MethodName(argType T1, replyType *T2) error
+	func (t *T) MethodName(argType T1, replyType *T2) error
 
-	where T1 and T2 can be marshaled by encoding/gob.
-	These requirements apply even if a different codec is used.
-	(In the future, these requirements may soften for custom codecs.)
+where T1 and T2 can be marshaled by encoding/gob.
+These requirements apply even if a different codec is used.
+(In the future, these requirements may soften for custom codecs.)
 
-	The method's first argument represents the arguments provided by the caller; the
-	second argument represents the result parameters to be returned to the caller.
-	The method's return value, if non-nil, is passed back as a string that the client
-	sees as if created by errors.New.  If an error is returned, the reply parameter
-	will not be sent back to the client.
+The method's first argument represents the arguments provided by the caller; the
+second argument represents the result parameters to be returned to the caller.
+The method's return value, if non-nil, is passed back as a string that the client
+sees as if created by errors.New.  If an error is returned, the reply parameter
+will not be sent back to the client.
 
-	The server may handle requests on a single connection by calling ServeConn.  More
-	typically it will create a network listener and call Accept or, for an HTTP
-	listener, HandleHTTP and http.Serve.
+The server may handle requests on a single connection by calling ServeConn.  More
+typically it will create a network listener and call Accept or, for an HTTP
+listener, HandleHTTP and http.Serve.
 
-	A client wishing to use the service establishes a connection and then invokes
-	NewClient on the connection.  The convenience function Dial (DialHTTP) performs
-	both steps for a raw network connection (an HTTP connection).  The resulting
-	Client object has two methods, Call and Go, that specify the service and method to
-	call, a pointer containing the arguments, and a pointer to receive the result
-	parameters.
+A client wishing to use the service establishes a connection and then invokes
+NewClient on the connection.  The convenience function Dial (DialHTTP) performs
+both steps for a raw network connection (an HTTP connection).  The resulting
+Client object has two methods, Call and Go, that specify the service and method to
+call, a pointer containing the arguments, and a pointer to receive the result
+parameters.
 
-	The Call method waits for the remote call to complete while the Go method
-	launches the call asynchronously and signals completion using the Call
-	structure's Done channel.
+The Call method waits for the remote call to complete while the Go method
+launches the call asynchronously and signals completion using the Call
+structure's Done channel.
 
-	Unless an explicit codec is set up, package encoding/gob is used to
-	transport the data.
+Unless an explicit codec is set up, package encoding/gob is used to
+transport the data.
 
-	Here is a simple example.  A server wishes to export an object of type Arith:
+Here is a simple example.  A server wishes to export an object of type Arith:
 
-		package server
+	package server
 
-		import "errors"
+	import "errors"
 
-		type Args struct {
-			A, B int
+	type Args struct {
+		A, B int
+	}
+
+	type Quotient struct {
+		Quo, Rem int
+	}
+
+	type Arith int
+
+	func (t *Arith) Multiply(args *Args, reply *int) error {
+		*reply = args.A * args.B
+		return nil
+	}
+
+	func (t *Arith) Divide(args *Args, quo *Quotient) error {
+		if args.B == 0 {
+			return errors.New("divide by zero")
 		}
+		quo.Quo = args.A / args.B
+		quo.Rem = args.A % args.B
+		return nil
+	}
 
-		type Quotient struct {
-			Quo, Rem int
-		}
+The server calls (for HTTP service):
 
-		type Arith int
+	arith := new(Arith)
+	rpc.Register(arith)
+	rpc.HandleHTTP()
+	l, e := net.Listen("tcp", ":1234")
+	if e != nil {
+		log.Fatal("listen error:", e)
+	}
+	go http.Serve(l, nil)
 
-		func (t *Arith) Multiply(args *Args, reply *int) error {
-			*reply = args.A * args.B
-			return nil
-		}
+At this point, clients can see a service "Arith" with methods "Arith.Multiply" and
+"Arith.Divide".  To invoke one, a client first dials the server:
 
-		func (t *Arith) Divide(args *Args, quo *Quotient) error {
-			if args.B == 0 {
-				return errors.New("divide by zero")
-			}
-			quo.Quo = args.A / args.B
-			quo.Rem = args.A % args.B
-			return nil
-		}
+	client, err := rpc.DialHTTP("tcp", serverAddress + ":1234")
+	if err != nil {
+		log.Fatal("dialing:", err)
+	}
 
-	The server calls (for HTTP service):
+Then it can make a remote call:
 
-		arith := new(Arith)
-		rpc.Register(arith)
-		rpc.HandleHTTP()
-		l, e := net.Listen("tcp", ":1234")
-		if e != nil {
-			log.Fatal("listen error:", e)
-		}
-		go http.Serve(l, nil)
+	// Synchronous call
+	args := &server.Args{7,8}
+	var reply int
+	err = client.Call("Arith.Multiply", args, &reply)
+	if err != nil {
+		log.Fatal("arith error:", err)
+	}
+	fmt.Printf("Arith: %d*%d=%d", args.A, args.B, reply)
 
-	At this point, clients can see a service "Arith" with methods "Arith.Multiply" and
-	"Arith.Divide".  To invoke one, a client first dials the server:
+or
 
-		client, err := rpc.DialHTTP("tcp", serverAddress + ":1234")
-		if err != nil {
-			log.Fatal("dialing:", err)
-		}
+	// Asynchronous call
+	quotient := new(Quotient)
+	divCall := client.Go("Arith.Divide", args, quotient, nil)
+	replyCall := <-divCall.Done	// will be equal to divCall
+	// check errors, print, etc.
 
-	Then it can make a remote call:
+A server implementation will often provide a simple, type-safe wrapper for the
+client.
 
-		// Synchronous call
-		args := &server.Args{7,8}
-		var reply int
-		err = client.Call("Arith.Multiply", args, &reply)
-		if err != nil {
-			log.Fatal("arith error:", err)
-		}
-		fmt.Printf("Arith: %d*%d=%d", args.A, args.B, reply)
-
-	or
-
-		// Asynchronous call
-		quotient := new(Quotient)
-		divCall := client.Go("Arith.Divide", args, quotient, nil)
-		replyCall := <-divCall.Done	// will be equal to divCall
-		// check errors, print, etc.
-
-	A server implementation will often provide a simple, type-safe wrapper for the
-	client.
-
-	The net/rpc package is frozen and is not accepting new features.
+The net/rpc package is frozen and is not accepting new features.
 */
 package rpc
 
@@ -133,6 +133,7 @@ import (
 	"go/token"
 	"io"
 	"log"
+	"net"
 	"reflect"
 	"strings"
 	"sync"
@@ -170,6 +171,7 @@ type Request struct {
 	ServiceMethod string   // format: "Service.Method"
 	Seq           uint64   // sequence number chosen by client
 	next          *Request // for free list in Server
+	SourceAddr    net.Addr // used by preBodyInterceptor to expose origin of request
 }
 
 // Response is a header written before every RPC return. It is used internally
@@ -191,6 +193,7 @@ type Server struct {
 	freeResp   *Response
 
 	serverServiceCallInterceptor ServerServiceCallInterceptor
+	preBodyInterceptor           PreBodyInterceptor
 }
 
 // NewServer returns a new Server.
@@ -213,9 +216,20 @@ func WithServerServiceCallInterceptor(interceptor ServerServiceCallInterceptor) 
 	}
 }
 
+func WithPreBodyInterceptor(interceptor PreBodyInterceptor) func(*Server) {
+	return func(s *Server) {
+		s.preBodyInterceptor = interceptor
+	}
+}
+
 // ServerServiceCallInterceptor acts a middleware hook on the server side of the RPC call. The interceptor must
 // invoke the handler argument for the RPC request to continue.
 type ServerServiceCallInterceptor func(reqServiceMethod string, argv, replyv reflect.Value, handler func() error)
+
+// PreBodyInterceptor acts a middleware hook on the server side of the RPC call that executes as early as possible
+// in the flow of execution. Specifically, after the request header is parsed but before the request body is parsed.
+// Returning an error will cease further processing of the request and return a response containing the error.
+type PreBodyInterceptor func(reqServiceMethod string, sourceAddr net.Addr) error
 
 // DefaultServer is the default instance of *Server.
 var DefaultServer = NewServer()
@@ -232,10 +246,11 @@ func isExportedOrBuiltinType(t reflect.Type) bool {
 
 // Register publishes in the server the set of methods of the
 // receiver value that satisfy the following conditions:
-//	- exported method of exported type
-//	- two arguments, both of exported type
-//	- the second argument is a pointer
-//	- one return value, of type error
+//   - exported method of exported type
+//   - two arguments, both of exported type
+//   - the second argument is a pointer
+//   - one return value, of type error
+//
 // It returns an error if the receiver is not an exported type or has
 // no suitable methods. It also logs the error using package log.
 // The client accesses each method using a string of the form "Type.Method",
@@ -406,7 +421,7 @@ func (s *service) call(server *Server, sending *sync.Mutex, wg *sync.WaitGroup, 
 }
 
 type gobServerCodec struct {
-	rwc    io.ReadWriteCloser
+	conn   net.Conn
 	dec    *gob.Decoder
 	enc    *gob.Encoder
 	encBuf *bufio.Writer
@@ -414,6 +429,7 @@ type gobServerCodec struct {
 }
 
 func (c *gobServerCodec) ReadRequestHeader(r *Request) error {
+	r.SourceAddr = c.conn.RemoteAddr()
 	return c.dec.Decode(r)
 }
 
@@ -449,7 +465,7 @@ func (c *gobServerCodec) Close() error {
 		return nil
 	}
 	c.closed = true
-	return c.rwc.Close()
+	return c.conn.Close()
 }
 
 // ServeRequest is like ServeCodec but synchronously serves a single request.
@@ -532,6 +548,14 @@ func (server *Server) readRequest(codec ServerCodec) (service *service, mtype *m
 		// discard body
 		codec.ReadRequestBody(nil)
 		return
+	}
+
+	if server.preBodyInterceptor != nil {
+		// Allow interceptor to halt servicing of the request
+		err = server.preBodyInterceptor(req.ServiceMethod, req.SourceAddr)
+		if err != nil {
+			return
+		}
 	}
 
 	// Decode the argument value.
