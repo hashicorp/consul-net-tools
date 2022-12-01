@@ -14,6 +14,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"reflect"
 	"runtime"
 	"strings"
@@ -450,7 +451,7 @@ func (codec *CodecEmulator) Call(serviceMethod string, args *Args, reply *Reply)
 func (codec *CodecEmulator) ReadRequestHeader(req *Request) error {
 	req.ServiceMethod = codec.serviceMethod
 	req.Seq = 0
-	req.SourceAddr = &net.TCPAddr{IP: []byte{99, 99, 99, 99}, Port: 8080, Zone: ""}
+	req.SourceAddr = net.TCPAddrFromAddrPort(netip.MustParseAddrPort("1.2.3.4:8080"))
 	return nil
 }
 
@@ -534,7 +535,7 @@ func TestServeRequestWithInterceptor(t *testing.T) {
 
 func TestPreBodyInterceptor_Success(t *testing.T) {
 	preBodyInterceptorCalled := false
-	expectedSourceAddr := &net.TCPAddr{IP: []byte{99, 99, 99, 99}, Port: 8080, Zone: ""}
+	expectedSourceAddr := net.TCPAddrFromAddrPort(netip.MustParseAddrPort("1.2.3.4:8080"))
 
 	preBodyInterceptor := PreBodyInterceptor(func(reqServiceMethod string, sourceAddr net.Addr) error {
 		if reqServiceMethod != "Arith.Add" {
