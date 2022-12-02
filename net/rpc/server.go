@@ -171,7 +171,6 @@ type Request struct {
 	ServiceMethod string   // format: "Service.Method"
 	Seq           uint64   // sequence number chosen by client
 	next          *Request // for free list in Server
-	SourceAddr    net.Addr // used by preBodyInterceptor to expose origin of request
 }
 
 // Response is a header written before every RPC return. It is used internally
@@ -428,7 +427,6 @@ type gobServerCodec struct {
 }
 
 func (c *gobServerCodec) ReadRequestHeader(r *Request) error {
-	r.SourceAddr = c.conn.RemoteAddr()
 	return c.dec.Decode(r)
 }
 
@@ -456,6 +454,10 @@ func (c *gobServerCodec) WriteResponse(r *Response, body interface{}) (err error
 		return
 	}
 	return c.encBuf.Flush()
+}
+
+func (c *gobServerCodec) SourceAddr() net.Addr {
+	return c.conn.RemoteAddr()
 }
 
 func (c *gobServerCodec) Close() error {
@@ -551,7 +553,7 @@ func (server *Server) readRequest(codec ServerCodec) (service *service, mtype *m
 
 	if server.preBodyInterceptor != nil {
 		// Allow interceptor to halt servicing of the request
-		err = server.preBodyInterceptor(req.ServiceMethod, req.SourceAddr)
+		err = server.preBodyInterceptor(req.ServiceMethod, codec.SourceAddr())
 		if err != nil {
 			return
 		}
@@ -635,6 +637,7 @@ type ServerCodec interface {
 	ReadRequestHeader(*Request) error
 	ReadRequestBody(interface{}) error
 	WriteResponse(*Response, interface{}) error
+	SourceAddr() net.Addr
 
 	// Close can be called multiple times and must be idempotent.
 	Close() error

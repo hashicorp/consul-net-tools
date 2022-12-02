@@ -451,7 +451,6 @@ func (codec *CodecEmulator) Call(serviceMethod string, args *Args, reply *Reply)
 func (codec *CodecEmulator) ReadRequestHeader(req *Request) error {
 	req.ServiceMethod = codec.serviceMethod
 	req.Seq = 0
-	req.SourceAddr = net.TCPAddrFromAddrPort(netip.MustParseAddrPort("1.2.3.4:8080"))
 	return nil
 }
 
@@ -470,6 +469,10 @@ func (codec *CodecEmulator) WriteResponse(resp *Response, reply interface{}) err
 		*codec.reply = *(reply.(*Reply))
 	}
 	return nil
+}
+
+func (codec *CodecEmulator) SourceAddr() net.Addr {
+	return net.TCPAddrFromAddrPort(netip.MustParseAddrPort("1.2.3.4:8080"))
 }
 
 func (codec *CodecEmulator) Close() error {

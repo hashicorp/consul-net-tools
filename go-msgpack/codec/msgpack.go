@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"net"
 
 	"github.com/hashicorp/consul-net-rpc/net/rpc"
 )
@@ -742,7 +743,6 @@ func (c *msgpackSpecRpcCodec) ReadResponseHeader(r *rpc.Response) error {
 }
 
 func (c *msgpackSpecRpcCodec) ReadRequestHeader(r *rpc.Request) error {
-	r.SourceAddr = c.conn.RemoteAddr()
 	return c.parseCustomHeader(0, &r.Seq, &r.ServiceMethod)
 }
 
@@ -752,6 +752,10 @@ func (c *msgpackSpecRpcCodec) ReadRequestBody(body interface{}) error {
 	}
 	bodyArr := []interface{}{body}
 	return c.read(&bodyArr)
+}
+
+func (c *msgpackSpecRpcCodec) SourceAddr() net.Addr {
+	return c.conn.RemoteAddr()
 }
 
 func (c *msgpackSpecRpcCodec) parseCustomHeader(expectTypeByte byte, msgid *uint64, methodOrError *string) (err error) {

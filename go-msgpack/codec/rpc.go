@@ -131,12 +131,15 @@ func (c *goRpcCodec) ReadResponseHeader(r *rpc.Response) error {
 }
 
 func (c *goRpcCodec) ReadRequestHeader(r *rpc.Request) error {
-	r.SourceAddr = c.conn.RemoteAddr()
 	return c.read(r)
 }
 
 func (c *goRpcCodec) ReadRequestBody(body interface{}) error {
 	return c.read(body)
+}
+
+func (c *goRpcCodec) SourceAddr() net.Addr {
+	return c.conn.RemoteAddr()
 }
 
 // -------------------------------------

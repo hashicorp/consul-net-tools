@@ -58,7 +58,6 @@ func NewCodecFromHandle(bufReads, bufWrites bool, conn net.Conn,
 }
 
 func (cc *MsgpackCodec) ReadRequestHeader(r *rpc.Request) error {
-	r.SourceAddr = cc.conn.RemoteAddr()
 	return cc.read(r)
 }
 
@@ -84,6 +83,10 @@ func (cc *MsgpackCodec) WriteRequest(r *rpc.Request, body interface{}) error {
 	cc.writeLock.Lock()
 	defer cc.writeLock.Unlock()
 	return cc.write(r, body)
+}
+
+func (cc *MsgpackCodec) SourceAddr() net.Addr {
+	return cc.conn.RemoteAddr()
 }
 
 func (cc *MsgpackCodec) Close() error {
