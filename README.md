@@ -47,3 +47,4 @@ We will limit the changes to this fork in the following ways:
 * `hashicorp/net-rpc-msgpackrpc` and `hashicorp/go-msgpack` should only receive updates
   from the upstream remote, with one exception. In some cases we may delete code that is
   not used by Consul, to allow the deletion of functions from this fork of `net/rpc`.
+test
