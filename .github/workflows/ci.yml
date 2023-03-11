@@ -8,10 +8,10 @@ jobs:
     name: golangci-lint-net-rpc
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/setup-go@v2
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@ac593985615ec2ede58e132d2e21d2b1cbd6127c # pin@v3.3.0
+      - uses: actions/setup-go@6edd4406fa81c3da01a34fa6f6343087c207a568 # pin@v3.5.0
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v2
+        uses: golangci/golangci-lint-action@08e2f20817b15149a52b5b3ebe7de50aff2ba8c5  # pin@v3.4.0
         with:
           version: v1.28.3
           working-directory: ./net/rpc
@@ -28,3 +28,13 @@ jobs:
             --verbose
           skip-pkg-cache: true
           skip-build-cache: true
+  go-test:
+    runs-on: ubuntu-latest
+    steps:
+    - run: go env
+    - uses: actions/checkout@ac593985615ec2ede58e132d2e21d2b1cbd6127c # pin@v3.3.0
+    - uses: actions/setup-go@6edd4406fa81c3da01a34fa6f6343087c207a568 # pin@v3.5.0
+      with:
+        go-version-file: 'go.mod'
+    - name: run tests
+      run: go test -v ./...
