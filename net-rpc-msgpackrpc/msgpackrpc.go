@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: MPL-2.0
+
 // Package msgpackrpc implements a MessagePack-RPC ClientCodec and ServerCodec
 // for the rpc package, using the same API as the Go standard library
 // for jsonrpc.
