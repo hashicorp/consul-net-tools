@@ -320,6 +320,21 @@ func testRPC(t *testing.T, addr string) {
 		t.Errorf("Mul: expected %d got %d", reply.C, args.A*args.B)
 	}
 
+	// invoke directly
+	rawReply, err := DefaultServer.InvokeMethod("Arith.Mul", func(argvPtr any) error {
+		args := argvPtr.(*Args)
+		args.A = 4
+		args.B = 5
+		return nil
+	}, net.TCPAddrFromAddrPort(netip.MustParseAddrPort("1.2.3.4:8080")))
+	if err != nil {
+		t.Errorf("Mul: expected no error but got string %q", err.Error())
+	}
+	reply = rawReply.Interface().(*Reply)
+	if reply.C != 20 {
+		t.Errorf("Mul: expected %d got %d", reply.C, 20)
+	}
+
 	// ServiceName contain "." character
 	args = &Args{7, 8}
 	reply = new(Reply)

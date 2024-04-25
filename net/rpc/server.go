@@ -615,6 +615,57 @@ func (server *Server) findMethod(serviceMethod string) (svc *service, mtype *met
 	return
 }
 
+func (server *Server) InvokeMethod(
+	serviceMethod string,
+	decodeArgFn func(any) error,
+	sourceAddr net.Addr,
+) (reflect.Value, error) {
+	svc, mtype, err := server.findMethod(serviceMethod)
+	if err != nil {
+		return reflect.Value{}, err
+	}
+
+	if server.preBodyInterceptor != nil {
+		// Allow interceptor to halt servicing of the request
+		err = server.preBodyInterceptor(serviceMethod, sourceAddr)
+		if err != nil {
+			return reflect.Value{}, err
+		}
+	}
+
+	argv, argIsValue := interpretArgumentValue(mtype.ArgType)
+	argvPtr := argv.Interface()
+
+	if err := decodeArgFn(argvPtr); err != nil {
+		return reflect.Value{}, err
+	}
+
+	if argIsValue {
+		argv = argv.Elem()
+	}
+
+	replyv := interpretReplyValue(mtype.ReplyType)
+
+	function := mtype.method.Func
+
+	handler := func() error {
+		return callServiceMethod(function, svc.rcvr, argv, replyv)
+	}
+
+	var callErr error
+	if server.serverServiceCallInterceptor != nil {
+		server.serverServiceCallInterceptor(serviceMethod, argv, replyv, handler)
+	} else {
+		callErr = handler()
+	}
+
+	if callErr != nil {
+		return reflect.Value{}, callErr
+	}
+
+	return replyv, nil
+}
+
 func interpretArgumentValue(argType reflect.Type) (reflect.Value, bool) {
 	var (
 		argv       reflect.Value
