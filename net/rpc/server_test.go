@@ -6,6 +6,7 @@ package rpc
 
 import (
 	"bufio"
+	"context"
 	"encoding/gob"
 	"errors"
 	"fmt"
@@ -45,9 +46,9 @@ type Reply struct {
 
 type Arith int
 
-// Some of Arith's methods have value args, some have pointer args. That's deliberate.
+// Some of Arith's methods have value args, some have pointer args, some use contexts. That's deliberate.
 
-func (t *Arith) Add(args Args, reply *Reply) error {
+func (t *Arith) Add(ctx context.Context, args Args, reply *Reply) error {
 	reply.C = args.A + args.B
 	return nil
 }
@@ -321,7 +322,7 @@ func testRPC(t *testing.T, addr string) {
 	}
 
 	// invoke directly
-	rawReply, err := DefaultServer.InvokeMethod("Arith.Mul", func(argvPtr any) error {
+	rawReply, err := DefaultServer.InvokeMethod(context.Background(), "Arith.Mul", func(argvPtr any) error {
 		args := argvPtr.(*Args)
 		args.A = 4
 		args.B = 5
@@ -651,6 +652,7 @@ type ReplyNotPointer int
 type ArgNotPublic int
 type ReplyNotPublic int
 type NeedsPtrType int
+type FirstArgShouldBeContext int
 type local struct{}
 
 func (t *ReplyNotPointer) ReplyNotPointer(args *Args, reply Reply) error {
@@ -666,6 +668,10 @@ func (t *ReplyNotPublic) ReplyNotPublic(args *Args, reply *local) error {
 }
 
 func (t *NeedsPtrType) NeedsPtrType(args *Args, reply *Reply) error {
+	return nil
+}
+
+func (t *FirstArgShouldBeContext) FirstArgShouldBeContext(fakeCtx *Args, args *Args, reply *Reply) error {
 	return nil
 }
 
@@ -688,6 +694,10 @@ func TestRegistrationError(t *testing.T) {
 		t.Error("expected error registering NeedsPtrType")
 	} else if !strings.Contains(err.Error(), "pointer") {
 		t.Error("expected hint when registering NeedsPtrType")
+	}
+	err = DefaultServer.Register(new(FirstArgShouldBeContext))
+	if err == nil {
+		t.Error("expected error registering FirstArgShouldBeContext")
 	}
 }
 
