@@ -26,10 +26,9 @@ import (
 )
 
 var (
-	newServer                 *Server
-	serverAddr, newServerAddr string
-	httpServerAddr            string
-	once, newOnce, httpOnce   sync.Once
+	sharedServerAddr string
+	sharedHTTPAddr   string
+	once             sync.Once
 )
 
 const (
@@ -77,7 +76,7 @@ func (t *Arith) Scan(args string, reply *Reply) (err error) {
 }
 
 func (t *Arith) Error(args *Args, reply *Reply) error {
-	panic("ERROR")
+	return errors.New("ERROR")
 }
 
 func (t *Arith) SleepMilli(args *Args, reply *Reply) error {
@@ -114,88 +113,125 @@ func (BuiltinTypes) Array(args *Args, reply *[2]int) error {
 	return nil
 }
 
-func listenTCP() (net.Listener, string) {
+func listenTCP(t testingCleanup) (net.Listener, string) {
 	l, e := net.Listen("tcp", "127.0.0.1:0") // any available address
 	if e != nil {
 		log.Fatalf("net.Listen tcp :0: %v", e)
 	}
+	if t != nil {
+		t.Cleanup(func() {
+			_ = l.Close()
+		})
+	}
 	return l, l.Addr().String()
 }
 
-func startServer() {
+func startSharedServer() (string, string) {
+	once.Do(startSharedServerOnce)
+	return sharedServerAddr, sharedHTTPAddr
+}
+func startSharedServerOnce() {
 	DefaultServer.Register(new(Arith))
 	DefaultServer.Register(new(Embed))
 	DefaultServer.RegisterName("net.rpc.Arith", new(Arith))
 	DefaultServer.Register(BuiltinTypes{})
 
 	var l net.Listener
-	l, serverAddr = listenTCP()
-	log.Println("Test RPC server listening on", serverAddr)
+	l, sharedServerAddr = listenTCP(nil)
+	log.Println("Test RPC server listening on", sharedServerAddr)
 	go accept(DefaultServer, l)
 
-	handleHTTP(DefaultServer, DefaultRPCPath, DefaultDebugPath)
-	httpOnce.Do(startHttpServer)
+	mux := http.DefaultServeMux
+	handleHTTP(DefaultServer, mux, DefaultRPCPath, DefaultDebugPath)
+
+	sharedHTTPAddr = startHttpServer(nil, mux)
 }
 
-func startNewServer() {
-	newServer = NewServer()
+type testingCleanup interface {
+	Cleanup(func())
+}
+
+func startNewServer(t testingCleanup) (*Server, string, string) {
+	newServer := NewServer()
 	newServer.Register(new(Arith))
 	newServer.Register(new(Embed))
 	newServer.RegisterName("net.rpc.Arith", new(Arith))
 	newServer.RegisterName("newServer.Arith", new(Arith))
 
-	var l net.Listener
-	l, newServerAddr = listenTCP()
+	l, newServerAddr := listenTCP(t)
 	log.Println("NewServer test RPC server listening on", newServerAddr)
 	go accept(newServer, l)
 
-	handleHTTP(newServer, newHttpPath, "/bar")
-	httpOnce.Do(startHttpServer)
+	mux := http.NewServeMux()
+	handleHTTP(newServer, mux, newHttpPath, "/bar")
+	newHTTPAddr := startHttpServer(t, mux)
+
+	return newServer, newServerAddr, newHTTPAddr
 }
 
-func startNewServerWithPreBodyInterceptor(preBodyinterceptor PreBodyInterceptor) {
-	newServer = NewServerWithOpts(WithPreBodyInterceptor(preBodyinterceptor))
+func startNewServerWithPreBodyInterceptor(t testingCleanup, preBodyinterceptor PreBodyInterceptor) (*Server, string) {
+	newServer := NewServerWithOpts(WithPreBodyInterceptor(preBodyinterceptor))
+
+	newServer.Register(new(Arith))
+	newServer.Register(new(Embed))
+	newServer.RegisterName("net.rpc.Arith", new(Arith))
+	newServer.RegisterName("newServer.Arith", new(Arith))
+	var l net.Listener
+	l, newServerAddr := listenTCP(t)
+	log.Println("NewServer test RPC server listening on", newServerAddr)
+	go accept(newServer, l)
+
+	return newServer, newServerAddr
+}
+
+func startNewServerWithInterceptor(t testingCleanup, interceptor ServerServiceCallInterceptor) (*Server, string) {
+	newServer := NewServerWithOpts(WithServerServiceCallInterceptor(interceptor))
 
 	newServer.Register(new(Arith))
 	newServer.Register(new(Embed))
 	newServer.RegisterName("net.rpc.Arith", new(Arith))
 	newServer.RegisterName("newServer.Arith", new(Arith))
 
-	var l net.Listener
-	l, newServerAddr = listenTCP()
+	l, newServerAddr := listenTCP(t)
 	log.Println("NewServer test RPC server listening on", newServerAddr)
 	go accept(newServer, l)
+
+	return newServer, newServerAddr
 }
 
-func startNewServerWithInterceptor(interceptor ServerServiceCallInterceptor) {
-	newServer = NewServerWithOpts(WithServerServiceCallInterceptor(interceptor))
+func startHttpServer(t testingCleanup, mux *http.ServeMux) string {
+	server := httptest.NewServer(mux)
+	if t != nil {
+		t.Cleanup(server.Close)
+	}
 
-	newServer.Register(new(Arith))
-	newServer.Register(new(Embed))
-	newServer.RegisterName("net.rpc.Arith", new(Arith))
-	newServer.RegisterName("newServer.Arith", new(Arith))
-
-	var l net.Listener
-	l, newServerAddr = listenTCP()
-	log.Println("NewServer test RPC server listening on", newServerAddr)
-	go accept(newServer, l)
-}
-
-func startHttpServer() {
-	server := httptest.NewServer(nil)
-	httpServerAddr = server.Listener.Addr().String()
+	httpServerAddr := server.Listener.Addr().String()
 	log.Println("Test HTTP RPC server listening on", httpServerAddr)
+	return httpServerAddr
 }
 
 func TestRPC(t *testing.T) {
-	once.Do(startServer)
-	testRPC(t, serverAddr)
-	newOnce.Do(startNewServer)
-	testRPC(t, newServerAddr)
-	testNewServerRPC(t, newServerAddr)
+	t.Run("shared", func(t *testing.T) {
+		serverAddr, _ := startSharedServer()
+		testRPC(t, DefaultServer, serverAddr, nil)
+	})
+	t.Run("separate", func(t *testing.T) {
+		newServer, serverAddr, _ := startNewServer(t)
+		testRPC(t, newServer, serverAddr, nil)
+		testNewServerRPC(t, serverAddr)
+	})
+	t.Run("separate with interceptor", func(t *testing.T) {
+		var callCount atomic.Int32
+		interceptor := ServerServiceCallInterceptor(func(_ string, _, _ reflect.Value, handler func() error) {
+			callCount.Add(1)
+			_ = handler()
+		})
+		newServer, serverAddr := startNewServerWithInterceptor(t, interceptor)
+		testRPC(t, newServer, serverAddr, &callCount)
+	})
 }
 
-func testRPC(t *testing.T, addr string) {
+func testRPC(t *testing.T, srv *Server, addr string, interceptCount *atomic.Int32) {
 	client, err := Dial("tcp", addr)
 	if err != nil {
 		t.Fatal("dialing", err)
@@ -322,7 +358,10 @@ func testRPC(t *testing.T, addr string) {
 	}
 
 	// invoke directly
-	rawReply, err := DefaultServer.InvokeMethod(context.Background(), "Arith.Mul", func(argvPtr any) error {
+	if interceptCount != nil {
+		interceptCount.Store(0)
+	}
+	rawReply, err := srv.InvokeMethod(context.Background(), "Arith.Mul", func(argvPtr any) error {
 		args := argvPtr.(*Args)
 		args.A = 4
 		args.B = 5
@@ -334,6 +373,30 @@ func testRPC(t *testing.T, addr string) {
 	reply = rawReply.Interface().(*Reply)
 	if reply.C != 20 {
 		t.Errorf("Mul: expected %d got %d", reply.C, 20)
+	}
+	if interceptCount != nil {
+		if interceptCount.Load() != 1 {
+			t.Errorf("Mul: expected to intercept call")
+		}
+	}
+
+	// invoke error directly
+	if interceptCount != nil {
+		interceptCount.Store(0)
+	}
+	_, err = srv.InvokeMethod(context.Background(), "Arith.Error", func(argvPtr any) error {
+		args := argvPtr.(*Args)
+		args.A = 4
+		args.B = 5
+		return nil
+	}, net.TCPAddrFromAddrPort(netip.MustParseAddrPort("1.2.3.4:8080")))
+	if err == nil {
+		t.Errorf("Error: expected error")
+	}
+	if interceptCount != nil {
+		if interceptCount.Load() != 1 {
+			t.Errorf("Mul: expected to intercept call")
+		}
 	}
 
 	// ServiceName contain "." character
@@ -368,19 +431,23 @@ func testNewServerRPC(t *testing.T, addr string) {
 }
 
 func TestHTTP(t *testing.T) {
-	once.Do(startServer)
-	testHTTPRPC(t, "")
-	newOnce.Do(startNewServer)
-	testHTTPRPC(t, newHttpPath)
+	t.Run("shared", func(t *testing.T) {
+		_, httpServerAddr := startSharedServer()
+		testHTTP(t, httpServerAddr, "")
+	})
+	t.Run("separate", func(t *testing.T) {
+		_, _, httpServerAddr := startNewServer(t)
+		testHTTP(t, httpServerAddr, newHttpPath)
+	})
 }
 
-func testHTTPRPC(t *testing.T, path string) {
+func testHTTP(t *testing.T, serverAddr string, path string) {
 	var client *Client
 	var err error
 	if path == "" {
-		client, err = DialHTTP("tcp", httpServerAddr)
+		client, err = DialHTTP("tcp", serverAddr)
 	} else {
-		client, err = DialHTTPPath("tcp", httpServerAddr, path)
+		client, err = DialHTTPPath("tcp", serverAddr, path)
 	}
 	if err != nil {
 		t.Fatal("dialing", err)
@@ -400,7 +467,7 @@ func testHTTPRPC(t *testing.T, path string) {
 }
 
 func TestBuiltinTypes(t *testing.T) {
-	once.Do(startServer)
+	_, httpServerAddr := startSharedServer()
 
 	client, err := DialHTTP("tcp", httpServerAddr)
 	if err != nil {
@@ -496,8 +563,8 @@ func (codec *CodecEmulator) Close() error {
 }
 
 func TestServeRequest(t *testing.T) {
-	newOnce.Do(startNewServer)
-	testServeRequest(t, newServer)
+	srv, _, _ := startNewServer(t)
+	testServeRequest(t, srv)
 }
 
 func TestServeRequestWithInterceptor(t *testing.T) {
@@ -539,7 +606,7 @@ func TestServeRequestWithInterceptor(t *testing.T) {
 		afterHandler = 4
 	})
 
-	startNewServerWithInterceptor(interceptor)
+	newServer, _ := startNewServerWithInterceptor(t, interceptor)
 
 	testServeRequest(t, newServer)
 
@@ -569,7 +636,7 @@ func TestPreBodyInterceptor_Success(t *testing.T) {
 		return nil
 	})
 
-	startNewServerWithPreBodyInterceptor(preBodyInterceptor)
+	newServer, _ := startNewServerWithPreBodyInterceptor(t, preBodyInterceptor)
 	testServeRequest(t, newServer)
 
 	if !preBodyInterceptorCalled {
@@ -585,7 +652,7 @@ func TestPreBodyInterceptor_Failure(t *testing.T) {
 		return errors.New("request denied")
 	})
 
-	startNewServerWithPreBodyInterceptor(preBodyInterceptor)
+	newServer, _ := startNewServerWithPreBodyInterceptor(t, preBodyInterceptor)
 
 	client := CodecEmulator{server: newServer}
 	defer client.Close()
@@ -632,7 +699,7 @@ func TestServeRequestWithInterceptor_ServiceCallError(t *testing.T) {
 		handlerError = handler()
 	})
 
-	startNewServerWithInterceptor(interceptor)
+	newServer, _ := startNewServerWithInterceptor(t, interceptor)
 
 	client := CodecEmulator{server: newServer}
 	defer client.Close()
@@ -747,17 +814,17 @@ func testSendDeadlock(client *Client) {
 	client.Call("Arith.Add", args, reply)
 }
 
-func dialDirect() (*Client, error) {
+func dialDirect(serverAddr, _ string) (*Client, error) {
 	return Dial("tcp", serverAddr)
 }
 
-func dialHTTP() (*Client, error) {
+func dialHTTP(_, httpServerAddr string) (*Client, error) {
 	return DialHTTP("tcp", httpServerAddr)
 }
 
-func countMallocs(dial func() (*Client, error), t *testing.T) float64 {
-	once.Do(startServer)
-	client, err := dial()
+func countMallocs(dial func(string, string) (*Client, error), t *testing.T) float64 {
+	serverAddr, httpServerAddr := startSharedServer()
+	client, err := dial(serverAddr, httpServerAddr)
 	if err != nil {
 		t.Fatal("error dialing", err)
 	}
@@ -830,9 +897,9 @@ func TestClientWriteError(t *testing.T) {
 }
 
 func TestTCPClose(t *testing.T) {
-	once.Do(startServer)
+	_, httpServerAddr := startSharedServer()
 
-	client, err := dialHTTP()
+	client, err := dialHTTP("", httpServerAddr)
 	if err != nil {
 		t.Fatalf("dialing: %v", err)
 	}
@@ -851,9 +918,9 @@ func TestTCPClose(t *testing.T) {
 }
 
 func TestErrorAfterClientClose(t *testing.T) {
-	once.Do(startServer)
+	_, httpServerAddr := startSharedServer()
 
-	client, err := dialHTTP()
+	client, err := dialHTTP("", httpServerAddr)
 	if err != nil {
 		t.Fatalf("dialing: %v", err)
 	}
@@ -875,14 +942,14 @@ func TestAcceptExitAfterListenerClose(t *testing.T) {
 	newServer.RegisterName("newServer.Arith", new(Arith))
 
 	var l net.Listener
-	l, _ = listenTCP()
+	l, _ = listenTCP(t)
 	l.Close()
 	accept(newServer, l)
 }
 
 func TestShutdown(t *testing.T) {
 	var l net.Listener
-	l, _ = listenTCP()
+	l, _ = listenTCP(t)
 	ch := make(chan net.Conn, 1)
 	go func() {
 		defer l.Close()
@@ -927,9 +994,9 @@ func TestShutdown(t *testing.T) {
 	}
 }
 
-func benchmarkEndToEnd(dial func() (*Client, error), b *testing.B) {
-	once.Do(startServer)
-	client, err := dial()
+func benchmarkEndToEnd(dial func(string, string) (*Client, error), b *testing.B) {
+	serverAddr, httpServerAddr := startSharedServer()
+	client, err := dial(serverAddr, httpServerAddr)
 	if err != nil {
 		b.Fatal("error dialing:", err)
 	}
@@ -953,13 +1020,13 @@ func benchmarkEndToEnd(dial func() (*Client, error), b *testing.B) {
 	})
 }
 
-func benchmarkEndToEndAsync(dial func() (*Client, error), b *testing.B) {
+func benchmarkEndToEndAsync(dial func(string, string) (*Client, error), b *testing.B) {
 	if b.N == 0 {
 		return
 	}
 	const MaxConcurrentCalls = 100
-	once.Do(startServer)
-	client, err := dial()
+	serverAddr, httpServerAddr := startSharedServer()
+	client, err := dial(serverAddr, httpServerAddr)
 	if err != nil {
 		b.Fatal("error dialing:", err)
 	}
@@ -1038,9 +1105,9 @@ func accept(server *Server, lis net.Listener) {
 // handleHTTP registers an HTTP handler for RPC messages on rpcPath,
 // and a debugging handler on debugPath.
 // It is still necessary to invoke http.Serve(), typically in a go statement.
-func handleHTTP(server *Server, rpcPath, debugPath string) {
-	http.Handle(rpcPath, http.HandlerFunc(serveHTTP(server)))
-	http.Handle(debugPath, debugHTTP{server})
+func handleHTTP(server *Server, mux *http.ServeMux, rpcPath, debugPath string) {
+	mux.Handle(rpcPath, http.HandlerFunc(serveHTTP(server)))
+	mux.Handle(debugPath, debugHTTP{server})
 }
 
 // serveHTTP implements an http.HandlerFunc that answers RPC requests.
