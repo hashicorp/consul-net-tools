@@ -682,15 +682,17 @@ func (server *Server) InvokeMethod(
 
 	function := mtype.method.Func
 
+	// Capture the error so we can directly return it.
+	var callErr error
 	handler := func() error {
-		return callServiceMethod(ctx, mtype.HasContext, function, svc.rcvr, argv, replyv)
+		callErr = callServiceMethod(ctx, mtype.HasContext, function, svc.rcvr, argv, replyv)
+		return callErr
 	}
 
-	var callErr error
 	if server.serverServiceCallInterceptor != nil {
 		server.serverServiceCallInterceptor(serviceMethod, argv, replyv, handler)
 	} else {
-		callErr = handler()
+		_ = handler()
 	}
 
 	if callErr != nil {
