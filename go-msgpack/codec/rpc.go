@@ -65,6 +65,7 @@ func (c *rpcCodec) BufferedWriter() *bufio.Writer {
 	return c.bw
 }
 
+//nolint:unparam
 func (c *rpcCodec) write(obj1, obj2 interface{}, writeObj2, doFlush bool) (err error) {
 	if c.cls {
 		return io.EOF

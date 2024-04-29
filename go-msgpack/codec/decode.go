@@ -584,14 +584,15 @@ func NewDecoderBytes(in []byte, h Handle) *Decoder {
 // We will decode and store a value in that nil interface.
 //
 // Sample usages:
-//   // Decoding into a non-nil typed value
-//   var f float32
-//   err = codec.NewDecoder(r, handle).Decode(&f)
 //
-//   // Decoding into nil interface
-//   var v interface{}
-//   dec := codec.NewDecoder(r, handle)
-//   err = dec.Decode(&v)
+//	// Decoding into a non-nil typed value
+//	var f float32
+//	err = codec.NewDecoder(r, handle).Decode(&f)
+//
+//	// Decoding into nil interface
+//	var v interface{}
+//	dec := codec.NewDecoder(r, handle)
+//	err = dec.Decode(&v)
 //
 // When decoding into a nil interface{}, we will decode into an appropriate value based
 // on the contents of the stream:
@@ -599,6 +600,7 @@ func NewDecoderBytes(in []byte, h Handle) *Decoder {
 //   - Other values are decoded appropriately depending on the type:
 //     bool, string, []byte, time.Time, etc
 //   - Extensions are decoded as RawExt (if no ext function registered for the tag)
+//
 // Configurations exist on the Handle to override defaults
 // (e.g. for MapType, SliceType and how to decode raw bytes).
 //
@@ -624,7 +626,6 @@ func NewDecoderBytes(in []byte, h Handle) *Decoder {
 //
 // However, when decoding a stream nil, we reset the destination container
 // to its "zero" value (e.g. nil for slice/map, etc).
-//
 func (d *Decoder) Decode(v interface{}) (err error) {
 	defer panicToErr(&err)
 	d.decode(v)
@@ -829,8 +830,6 @@ func (d *Decoder) decodeValue(rv reflect.Value) {
 	}
 
 	fn.f(fn.i, rv)
-
-	return
 }
 
 func (d *Decoder) chkPtrValue(rv reflect.Value) {
@@ -873,12 +872,12 @@ func (d *Decoder) decSliceIntf(v *[]interface{}, currEncodedType valueType, doNo
 	_, containerLenS := decContLens(d.d, currEncodedType)
 	s := *v
 	if s == nil {
-		s = make([]interface{}, containerLenS, containerLenS)
+		s = make([]interface{}, containerLenS)
 	} else if containerLenS > cap(s) {
 		if doNotReset {
 			decErr(msgDecCannotExpandArr, cap(s), containerLenS)
 		}
-		s = make([]interface{}, containerLenS, containerLenS)
+		s = make([]interface{}, containerLenS)
 		copy(s, *v)
 	} else if containerLenS > len(s) {
 		s = s[:containerLenS]
@@ -893,12 +892,12 @@ func (d *Decoder) decSliceInt64(v *[]int64, currEncodedType valueType, doNotRese
 	_, containerLenS := decContLens(d.d, currEncodedType)
 	s := *v
 	if s == nil {
-		s = make([]int64, containerLenS, containerLenS)
+		s = make([]int64, containerLenS)
 	} else if containerLenS > cap(s) {
 		if doNotReset {
 			decErr(msgDecCannotExpandArr, cap(s), containerLenS)
 		}
-		s = make([]int64, containerLenS, containerLenS)
+		s = make([]int64, containerLenS)
 		copy(s, *v)
 	} else if containerLenS > len(s) {
 		s = s[:containerLenS]
@@ -915,12 +914,12 @@ func (d *Decoder) decSliceUint64(v *[]uint64, currEncodedType valueType, doNotRe
 	_, containerLenS := decContLens(d.d, currEncodedType)
 	s := *v
 	if s == nil {
-		s = make([]uint64, containerLenS, containerLenS)
+		s = make([]uint64, containerLenS)
 	} else if containerLenS > cap(s) {
 		if doNotReset {
 			decErr(msgDecCannotExpandArr, cap(s), containerLenS)
 		}
-		s = make([]uint64, containerLenS, containerLenS)
+		s = make([]uint64, containerLenS)
 		copy(s, *v)
 	} else if containerLenS > len(s) {
 		s = s[:containerLenS]
@@ -937,12 +936,12 @@ func (d *Decoder) decSliceStr(v *[]string, currEncodedType valueType, doNotReset
 	_, containerLenS := decContLens(d.d, currEncodedType)
 	s := *v
 	if s == nil {
-		s = make([]string, containerLenS, containerLenS)
+		s = make([]string, containerLenS)
 	} else if containerLenS > cap(s) {
 		if doNotReset {
 			decErr(msgDecCannotExpandArr, cap(s), containerLenS)
 		}
-		s = make([]string, containerLenS, containerLenS)
+		s = make([]string, containerLenS)
 		copy(s, *v)
 	} else if containerLenS > len(s) {
 		s = s[:containerLenS]

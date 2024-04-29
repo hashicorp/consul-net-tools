@@ -22,7 +22,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"math"
 	"net"
 	"os"
@@ -178,6 +177,7 @@ func testVerifyVal(v interface{}, arg testVerifyArg) (v2 interface{}) {
 		if iv > 0 {
 			v2 = uint64(iv)
 		} else {
+			//nolint:unconvert
 			v2 = int64(iv)
 		}
 	case uint8:
@@ -187,10 +187,12 @@ func testVerifyVal(v interface{}, arg testVerifyArg) (v2 interface{}) {
 	case uint32:
 		v2 = uint64(iv)
 	case uint64:
+		//nolint:unconvert
 		v2 = uint64(iv)
 	case float32:
 		v2 = float64(iv)
 	case float64:
+		//nolint:unconvert
 		v2 = float64(iv)
 	case []interface{}:
 		m2 := make([]interface{}, len(iv))
@@ -252,6 +254,7 @@ func testVerifyVal(v interface{}, arg testVerifyArg) (v2 interface{}) {
 			if iv2 := iv.UnixNano(); iv2 > 0 {
 				v2 = uint64(iv2)
 			} else {
+				//nolint:unconvert
 				v2 = int64(iv2)
 			}
 		default:
@@ -604,6 +607,9 @@ func testCodecTableOne(t *testing.T, h Handle) {
 
 func testCodecMiscOne(t *testing.T, h Handle) {
 	b, err := testMarshalErr(32, h, t, "32")
+	if err != nil {
+		t.Fatal(err)
+	}
 	// Cannot do this nil one, because faster type assertion decoding will panic
 	// var i *int32
 	// if err = testUnmarshal(b, i, nil); err == nil {
@@ -612,6 +618,9 @@ func testCodecMiscOne(t *testing.T, h Handle) {
 	// }
 	var i2 int32 = 0
 	err = testUnmarshalErr(&i2, b, h, t, "int32-ptr")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if i2 != int32(32) {
 		logT(t, "------- didn't unmarshal to 32: Received: %d", i2)
 		t.FailNow()
@@ -620,6 +629,9 @@ func testCodecMiscOne(t *testing.T, h Handle) {
 	// func TestMsgpackDecodePtr(t *testing.T) {
 	ts := newTestStruc(0, false)
 	b, err = testMarshalErr(ts, h, t, "pointer-to-struct")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(b) < 40 {
 		logT(t, "------- Size must be > 40. Size: %d", len(b))
 		t.FailNow()
@@ -627,6 +639,9 @@ func testCodecMiscOne(t *testing.T, h Handle) {
 	logT(t, "------- b: %v", b)
 	ts2 := new(TestStruc)
 	err = testUnmarshalErr(ts2, b, h, t, "pointer-to-struct")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if ts2.I64 != math.MaxInt64*2/3 {
 		logT(t, "------- Unmarshal wrong. Expect I64 = 64. Got: %v", ts2.I64)
 		t.FailNow()
@@ -636,10 +651,16 @@ func testCodecMiscOne(t *testing.T, h Handle) {
 	m := map[string]int{"A": 2, "B": 3}
 	p := []interface{}{m}
 	bs, err := testMarshalErr(p, h, t, "p")
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	m2 := map[string]int{}
 	p2 := []interface{}{m2}
 	err = testUnmarshalErr(&p2, bs, h, t, "&p2")
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	if m2["A"] != 2 || m2["B"] != 3 {
 		logT(t, "m2 not as expected: expecting: %v, got: %v", m, m2)
@@ -665,6 +686,9 @@ func testCodecMiscOne(t *testing.T, h Handle) {
 	// test that we can decode a subset of the stream
 	mm := map[string]interface{}{"A": 5, "B": 99, "C": 333}
 	bs, err = testMarshalErr(mm, h, t, "mm")
+	if err != nil {
+		t.Fatal(err)
+	}
 	type ttt struct {
 		A uint8
 		C int32
@@ -686,6 +710,9 @@ func testCodecMiscOne(t *testing.T, h Handle) {
 	// test both pointer and non-pointer (value)
 	for _, tarr1 := range []interface{}{tarr0, &tarr0} {
 		bs, err = testMarshalErr(tarr1, h, t, "tarr1")
+		if err != nil {
+			t.Fatal(err)
+		}
 		var tarr2 tarr
 		testUnmarshalErr(&tarr2, bs, h, t, "tarr2")
 		checkEqualT(t, tarr0, tarr2, "tarr0=tarr2")
@@ -743,9 +770,15 @@ func testCodecEmbeddedPointer(t *testing.T, h Handle) {
 	var z Z = 4
 	x1 := &B{&z, &A{5}, 6}
 	bs, err := testMarshalErr(x1, h, t, "x1")
+	if err != nil {
+		t.Fatal(err)
+	}
 	// fmt.Printf("buf: len(%v): %x\n", buf.Len(), buf.Bytes())
 	var x2 = new(B)
 	err = testUnmarshalErr(x2, bs, h, t, "x2")
+	if err != nil {
+		t.Fatal(err)
+	}
 	err = checkEqualT(t, x1, x2, "x1=x2")
 	_ = err
 }
@@ -857,7 +890,7 @@ func doTestRpcOne(t *testing.T, rr Rpc, h Handle, doRequest bool, exitSleepMs ti
 // This way, it can be excluded by excluding file completely.
 func doTestMsgpackPythonGenStreams(t *testing.T) {
 	logT(t, "TestPythonGenStreams")
-	tmpdir, err := ioutil.TempDir("", "golang-msgpack-test")
+	tmpdir, err := os.MkdirTemp("", "golang-msgpack-test")
 	if err != nil {
 		logT(t, "-------- Unable to create temp directory\n")
 		t.FailNow()
@@ -885,7 +918,7 @@ func doTestMsgpackPythonGenStreams(t *testing.T) {
 		logT(t, "..............................................")
 		logT(t, "         Testing: #%d: %T, %#v\n", i, v, v)
 		var bss []byte
-		bss, err = ioutil.ReadFile(filepath.Join(tmpdir, strconv.Itoa(i)+".golden"))
+		bss, err = os.ReadFile(filepath.Join(tmpdir, strconv.Itoa(i)+".golden"))
 		if err != nil {
 			logT(t, "-------- Error reading golden file: %d. Err: %v", i, err)
 			failT(t)
