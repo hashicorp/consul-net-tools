@@ -220,13 +220,22 @@ func TestRPC(t *testing.T) {
 		testRPC(t, newServer, serverAddr, nil)
 		testNewServerRPC(t, serverAddr)
 	})
-	t.Run("separate with interceptor", func(t *testing.T) {
+	t.Run("separate with call interceptor", func(t *testing.T) {
 		var callCount atomic.Int32
 		interceptor := ServerServiceCallInterceptor(func(_ string, _, _ reflect.Value, handler func() error) {
 			callCount.Add(1)
 			_ = handler()
 		})
 		newServer, serverAddr := startNewServerWithInterceptor(t, interceptor)
+		testRPC(t, newServer, serverAddr, &callCount)
+	})
+	t.Run("separate with prebody interceptor", func(t *testing.T) {
+		var callCount atomic.Int32
+		preBodyInterceptor := PreBodyInterceptor(func(reqServiceMethod string, sourceAddr net.Addr) error {
+			callCount.Add(1)
+			return nil
+		})
+		newServer, serverAddr := startNewServerWithPreBodyInterceptor(t, preBodyInterceptor)
 		testRPC(t, newServer, serverAddr, &callCount)
 	})
 }
