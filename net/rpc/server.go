@@ -406,14 +406,9 @@ func (s *service) call(server *Server, sending *sync.Mutex, wg *sync.WaitGroup, 
 	mtype.numCalls++
 	mtype.Unlock()
 	function := mtype.method.Func
-	// Invoke the method, providing a new value for the reply.
-	returnValues := function.Call([]reflect.Value{s.rcvr, argv, replyv})
-	// The return value for the method is an error.
-	errInter := returnValues[0].Interface()
-	var callErr error
-	if errInter != nil {
-		callErr = errInter.(error)
-	}
+
+	callErr := callServiceMethod(function, s.rcvr, argv, replyv)
+
 	server.sendResponse(sending, req, replyv.Interface(), codec, callErr)
 	server.freeRequest(req)
 	return callErr
@@ -561,13 +556,7 @@ func (server *Server) readRequest(codec ServerCodec) (service *service, mtype *m
 	}
 
 	// Decode the argument value.
-	argIsValue := false // if true, need to indirect before calling.
-	if mtype.ArgType.Kind() == reflect.Ptr {
-		argv = reflect.New(mtype.ArgType.Elem())
-	} else {
-		argv = reflect.New(mtype.ArgType)
-		argIsValue = true
-	}
+	argv, argIsValue := interpretArgumentValue(mtype.ArgType)
 	// argv guaranteed to be a pointer now.
 	if err = codec.ReadRequestBody(argv.Interface()); err != nil {
 		return
@@ -576,14 +565,7 @@ func (server *Server) readRequest(codec ServerCodec) (service *service, mtype *m
 		argv = argv.Elem()
 	}
 
-	replyv = reflect.New(mtype.ReplyType.Elem())
-
-	switch mtype.ReplyType.Elem().Kind() {
-	case reflect.Map:
-		replyv.Elem().Set(reflect.MakeMap(mtype.ReplyType.Elem()))
-	case reflect.Slice:
-		replyv.Elem().Set(reflect.MakeSlice(mtype.ReplyType.Elem(), 0, 0))
-	}
+	replyv = interpretReplyValue(mtype.ReplyType)
 	return
 }
 
@@ -604,26 +586,72 @@ func (server *Server) readRequestHeader(codec ServerCodec) (svc *service, mtype 
 	// we can still recover and move on to the next request.
 	keepReading = true
 
-	dot := strings.LastIndex(req.ServiceMethod, ".")
+	svc, mtype, err = server.findMethod(req.ServiceMethod)
+
+	return
+}
+
+func (server *Server) findMethod(serviceMethod string) (svc *service, mtype *methodType, err error) {
+	dot := strings.LastIndex(serviceMethod, ".")
 	if dot < 0 {
-		err = errors.New("rpc: service/method request ill-formed: " + req.ServiceMethod)
+		err = errors.New("rpc: service/method request ill-formed: " + serviceMethod)
 		return
 	}
-	serviceName := req.ServiceMethod[:dot]
-	methodName := req.ServiceMethod[dot+1:]
 
-	// Look up the request.
+	serviceName := serviceMethod[:dot]
+	methodName := serviceMethod[dot+1:]
+
 	svci, ok := server.serviceMap.Load(serviceName)
 	if !ok {
-		err = errors.New("rpc: can't find service " + req.ServiceMethod)
+		err = errors.New("rpc: can't find service " + serviceMethod)
 		return
 	}
 	svc = svci.(*service)
+
 	mtype = svc.method[methodName]
 	if mtype == nil {
-		err = errors.New("rpc: can't find method " + req.ServiceMethod)
+		err = errors.New("rpc: can't find method " + serviceMethod)
 	}
 	return
+}
+
+func interpretArgumentValue(argType reflect.Type) (reflect.Value, bool) {
+	var (
+		argv       reflect.Value
+		argIsValue bool // if true, need to indirect before calling.
+	)
+	if argType.Kind() == reflect.Ptr {
+		argv = reflect.New(argType.Elem())
+	} else {
+		argv = reflect.New(argType)
+		argIsValue = true
+	}
+
+	return argv, argIsValue
+}
+
+func interpretReplyValue(replyType reflect.Type) reflect.Value {
+	replyv := reflect.New(replyType.Elem())
+
+	switch replyType.Elem().Kind() {
+	case reflect.Map:
+		replyv.Elem().Set(reflect.MakeMap(replyType.Elem()))
+	case reflect.Slice:
+		replyv.Elem().Set(reflect.MakeSlice(replyType.Elem(), 0, 0))
+	}
+
+	return replyv
+}
+
+func callServiceMethod(function, rcvr, argv, replyv reflect.Value) error {
+	// Invoke the method, providing a new value for the reply.
+	returnValues := function.Call([]reflect.Value{rcvr, argv, replyv})
+	// The return value for the method is an error.
+	errInter := returnValues[0].Interface()
+	if errInter != nil {
+		return errInter.(error)
+	}
+	return nil
 }
 
 // A ServerCodec implements reading of RPC requests and writing of
