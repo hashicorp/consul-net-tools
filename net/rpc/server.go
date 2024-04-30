@@ -128,6 +128,7 @@ package rpc
 
 import (
 	"bufio"
+	"context"
 	"encoding/gob"
 	"errors"
 	"go/token"
@@ -149,11 +150,14 @@ const (
 // because Typeof takes an empty interface value. This is annoying.
 var typeOfError = reflect.TypeOf((*error)(nil)).Elem()
 
+var typeOfContext = reflect.TypeOf((*context.Context)(nil)).Elem()
+
 type methodType struct {
 	sync.Mutex // protects counters
 	method     reflect.Method
 	ArgType    reflect.Type
 	ReplyType  reflect.Type
+	HasContext bool
 	numCalls   uint
 }
 
@@ -245,6 +249,7 @@ func isExportedOrBuiltinType(t reflect.Type) bool {
 
 // Register publishes in the server the set of methods of the
 // receiver value that satisfy the following conditions:
+//   - optional context.Context
 //   - exported method of exported type
 //   - two arguments, both of exported type
 //   - the second argument is a pointer
@@ -319,15 +324,34 @@ func suitableMethods(typ reflect.Type, reportErr bool) map[string]*methodType {
 		if !method.IsExported() {
 			continue
 		}
-		// Method needs three ins: receiver, *args, *reply.
-		if mtype.NumIn() != 3 {
+
+		// Determine if we have a leading context or not.
+		var (
+			ctxType   reflect.Type
+			argOffset int
+		)
+		if mtype.NumIn() == 4 {
+			// First type if there are 4 args must be a ctx.
+			ctxType = mtype.In(1)
+			if ctxType != typeOfContext {
+				if reportErr {
+					log.Printf("rpc.Register: argument type of method %q must be context.Context when 4 arguments are provided: %q\n", mname, ctxType)
+					continue
+				}
+			}
+			argOffset = 1
+		}
+
+		// Method needs 3-4 ins: ctx (optional), receiver, *args, *reply.
+		if mtype.NumIn() != 3+argOffset {
 			if reportErr {
-				log.Printf("rpc.Register: method %q has %d input parameters; needs exactly three\n", mname, mtype.NumIn())
+				log.Printf("rpc.Register: method %q has %d input parameters; needs exactly %d\n", mname, mtype.NumIn(), 3+argOffset)
 			}
 			continue
 		}
+
 		// First arg need not be a pointer.
-		argType := mtype.In(1)
+		argType := mtype.In(1 + argOffset)
 		if !isExportedOrBuiltinType(argType) {
 			if reportErr {
 				log.Printf("rpc.Register: argument type of method %q is not exported: %q\n", mname, argType)
@@ -335,7 +359,7 @@ func suitableMethods(typ reflect.Type, reportErr bool) map[string]*methodType {
 			continue
 		}
 		// Second arg must be a pointer.
-		replyType := mtype.In(2)
+		replyType := mtype.In(2 + argOffset)
 		if replyType.Kind() != reflect.Ptr {
 			if reportErr {
 				log.Printf("rpc.Register: reply type of method %q is not a pointer: %q\n", mname, replyType)
@@ -363,7 +387,12 @@ func suitableMethods(typ reflect.Type, reportErr bool) map[string]*methodType {
 			}
 			continue
 		}
-		methods[mname] = &methodType{method: method, ArgType: argType, ReplyType: replyType}
+		methods[mname] = &methodType{
+			method:     method,
+			ArgType:    argType,
+			ReplyType:  replyType,
+			HasContext: (ctxType != nil),
+		}
 	}
 	return methods
 }
@@ -398,7 +427,7 @@ func (m *methodType) NumCalls() (n uint) {
 	return n
 }
 
-func (s *service) call(server *Server, sending *sync.Mutex, wg *sync.WaitGroup, mtype *methodType, req *Request, argv, replyv reflect.Value, codec ServerCodec) error {
+func (s *service) call(ctx context.Context, server *Server, sending *sync.Mutex, wg *sync.WaitGroup, mtype *methodType, req *Request, argv, replyv reflect.Value, codec ServerCodec) error {
 	if wg != nil {
 		defer wg.Done()
 	}
@@ -406,14 +435,9 @@ func (s *service) call(server *Server, sending *sync.Mutex, wg *sync.WaitGroup, 
 	mtype.numCalls++
 	mtype.Unlock()
 	function := mtype.method.Func
-	// Invoke the method, providing a new value for the reply.
-	returnValues := function.Call([]reflect.Value{s.rcvr, argv, replyv})
-	// The return value for the method is an error.
-	errInter := returnValues[0].Interface()
-	var callErr error
-	if errInter != nil {
-		callErr = errInter.(error)
-	}
+
+	callErr := callServiceMethod(ctx, mtype.HasContext, function, s.rcvr, argv, replyv)
+
 	server.sendResponse(sending, req, replyv.Interface(), codec, callErr)
 	server.freeRequest(req)
 	return callErr
@@ -473,6 +497,10 @@ func (c *gobServerCodec) Close() error {
 // ServeRequest is like ServeCodec but synchronously serves a single request.
 // It does not close the codec upon completion.
 func (server *Server) ServeRequest(codec ServerCodec) error {
+	return server.ServeRequestContext(context.Background(), codec)
+}
+
+func (server *Server) ServeRequestContext(ctx context.Context, codec ServerCodec) error {
 	sending := new(sync.Mutex)
 	service, mtype, req, argv, replyv, keepReading, err := server.readRequest(codec)
 	if err != nil {
@@ -488,7 +516,7 @@ func (server *Server) ServeRequest(codec ServerCodec) error {
 	}
 
 	handler := func() error {
-		return service.call(server, sending, nil, mtype, req, argv, replyv, codec)
+		return service.call(ctx, server, sending, nil, mtype, req, argv, replyv, codec)
 	}
 
 	if server.serverServiceCallInterceptor != nil {
@@ -561,13 +589,7 @@ func (server *Server) readRequest(codec ServerCodec) (service *service, mtype *m
 	}
 
 	// Decode the argument value.
-	argIsValue := false // if true, need to indirect before calling.
-	if mtype.ArgType.Kind() == reflect.Ptr {
-		argv = reflect.New(mtype.ArgType.Elem())
-	} else {
-		argv = reflect.New(mtype.ArgType)
-		argIsValue = true
-	}
+	argv, argIsValue := interpretArgumentValue(mtype.ArgType)
 	// argv guaranteed to be a pointer now.
 	if err = codec.ReadRequestBody(argv.Interface()); err != nil {
 		return
@@ -576,14 +598,7 @@ func (server *Server) readRequest(codec ServerCodec) (service *service, mtype *m
 		argv = argv.Elem()
 	}
 
-	replyv = reflect.New(mtype.ReplyType.Elem())
-
-	switch mtype.ReplyType.Elem().Kind() {
-	case reflect.Map:
-		replyv.Elem().Set(reflect.MakeMap(mtype.ReplyType.Elem()))
-	case reflect.Slice:
-		replyv.Elem().Set(reflect.MakeSlice(mtype.ReplyType.Elem(), 0, 0))
-	}
+	replyv = interpretReplyValue(mtype.ReplyType)
 	return
 }
 
@@ -604,26 +619,133 @@ func (server *Server) readRequestHeader(codec ServerCodec) (svc *service, mtype 
 	// we can still recover and move on to the next request.
 	keepReading = true
 
-	dot := strings.LastIndex(req.ServiceMethod, ".")
+	svc, mtype, err = server.findMethod(req.ServiceMethod)
+
+	return
+}
+
+func (server *Server) findMethod(serviceMethod string) (svc *service, mtype *methodType, err error) {
+	dot := strings.LastIndex(serviceMethod, ".")
 	if dot < 0 {
-		err = errors.New("rpc: service/method request ill-formed: " + req.ServiceMethod)
+		err = errors.New("rpc: service/method request ill-formed: " + serviceMethod)
 		return
 	}
-	serviceName := req.ServiceMethod[:dot]
-	methodName := req.ServiceMethod[dot+1:]
 
-	// Look up the request.
+	serviceName := serviceMethod[:dot]
+	methodName := serviceMethod[dot+1:]
+
 	svci, ok := server.serviceMap.Load(serviceName)
 	if !ok {
-		err = errors.New("rpc: can't find service " + req.ServiceMethod)
+		err = errors.New("rpc: can't find service " + serviceMethod)
 		return
 	}
 	svc = svci.(*service)
+
 	mtype = svc.method[methodName]
 	if mtype == nil {
-		err = errors.New("rpc: can't find method " + req.ServiceMethod)
+		err = errors.New("rpc: can't find method " + serviceMethod)
 	}
 	return
+}
+
+func (server *Server) InvokeMethod(
+	ctx context.Context,
+	serviceMethod string,
+	decodeArgFn func(any) error,
+	sourceAddr net.Addr,
+) (reflect.Value, error) {
+	svc, mtype, err := server.findMethod(serviceMethod)
+	if err != nil {
+		return reflect.Value{}, err
+	}
+
+	if server.preBodyInterceptor != nil {
+		// Allow interceptor to halt servicing of the request
+		err = server.preBodyInterceptor(serviceMethod, sourceAddr)
+		if err != nil {
+			return reflect.Value{}, err
+		}
+	}
+
+	argv, argIsValue := interpretArgumentValue(mtype.ArgType)
+	argvPtr := argv.Interface()
+
+	if err := decodeArgFn(argvPtr); err != nil {
+		return reflect.Value{}, err
+	}
+
+	if argIsValue {
+		argv = argv.Elem()
+	}
+
+	replyv := interpretReplyValue(mtype.ReplyType)
+
+	function := mtype.method.Func
+
+	// Capture the error so we can directly return it.
+	var callErr error
+	handler := func() error {
+		callErr = callServiceMethod(ctx, mtype.HasContext, function, svc.rcvr, argv, replyv)
+		return callErr
+	}
+
+	if server.serverServiceCallInterceptor != nil {
+		server.serverServiceCallInterceptor(serviceMethod, argv, replyv, handler)
+	} else {
+		_ = handler()
+	}
+
+	if callErr != nil {
+		return reflect.Value{}, callErr
+	}
+
+	return replyv, nil
+}
+
+func interpretArgumentValue(argType reflect.Type) (reflect.Value, bool) {
+	var (
+		argv       reflect.Value
+		argIsValue bool // if true, need to indirect before calling.
+	)
+	if argType.Kind() == reflect.Ptr {
+		argv = reflect.New(argType.Elem())
+	} else {
+		argv = reflect.New(argType)
+		argIsValue = true
+	}
+
+	return argv, argIsValue
+}
+
+func interpretReplyValue(replyType reflect.Type) reflect.Value {
+	replyv := reflect.New(replyType.Elem())
+
+	switch replyType.Elem().Kind() {
+	case reflect.Map:
+		replyv.Elem().Set(reflect.MakeMap(replyType.Elem()))
+	case reflect.Slice:
+		replyv.Elem().Set(reflect.MakeSlice(replyType.Elem(), 0, 0))
+	}
+
+	return replyv
+}
+
+func callServiceMethod(ctx context.Context, useCtx bool, function, rcvr, argv, replyv reflect.Value) error {
+	// Invoke the method, providing a new value for the reply.
+	var args []reflect.Value
+	if useCtx {
+		args = []reflect.Value{rcvr, reflect.ValueOf(ctx), argv, replyv}
+	} else {
+		args = []reflect.Value{rcvr, argv, replyv}
+	}
+	returnValues := function.Call(args)
+
+	// The return value for the method is an error.
+	errInter := returnValues[0].Interface()
+	if errInter != nil {
+		return errInter.(error)
+	}
+	return nil
 }
 
 // A ServerCodec implements reading of RPC requests and writing of
