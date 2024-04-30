@@ -30,7 +30,6 @@ func panicValToErr(panicVal interface{}, err *error) {
 	if raisePanicAfterRecover {
 		panic(panicVal)
 	}
-	return
 }
 
 func hIsEmptyValue(v reflect.Value, deref, checkStruct bool) bool {
@@ -113,6 +112,7 @@ func implementsIntf(typ, iTyp reflect.Type) (success bool, indir int8) {
 		}
 		if p := rt; p.Kind() == reflect.Ptr {
 			indir++
+			//nolint:staticcheck
 			if indir >= math.MaxInt8 { // insane number of indirections
 				return false, 0
 			}

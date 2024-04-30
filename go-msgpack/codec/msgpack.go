@@ -10,12 +10,11 @@ without caring about the type.
 
 For compatibility with behaviour of msgpack-c reference implementation:
   - Go intX (>0) and uintX
-       IS ENCODED AS
+    IS ENCODED AS
     msgpack +ve fixnum, unsigned
   - Go intX (<0)
-       IS ENCODED AS
+    IS ENCODED AS
     msgpack -ve fixnum, signed
-
 */
 package codec
 
@@ -29,6 +28,7 @@ import (
 )
 
 const (
+	//nolint:staticcheck
 	mpPosFixNumMin byte = 0x00
 	mpPosFixNumMax      = 0x7f
 	mpFixMapMin         = 0x80
@@ -154,6 +154,7 @@ func (e *msgpackEncDriver) encodeUint(i uint64) {
 		e.w.writeUint32(uint32(i))
 	default:
 		e.w.writen1(mpUint64)
+		//nolint:unconvert
 		e.w.writeUint64(uint64(i))
 	}
 }
@@ -306,6 +307,7 @@ func (d *msgpackDecDriver) decodeNaked() (v interface{}, vt valueType, decodeFur
 		v = uint64(d.r.readUint32())
 	case mpUint64:
 		vt = valueTypeUint
+		//nolint:unconvert
 		v = uint64(d.r.readUint64())
 
 	case mpInt8:
@@ -316,9 +318,11 @@ func (d *msgpackDecDriver) decodeNaked() (v interface{}, vt valueType, decodeFur
 		v = int64(int16(d.r.readUint16()))
 	case mpInt32:
 		vt = valueTypeInt
+		//nolint:unconvert
 		v = int64(int32(d.r.readUint32()))
 	case mpInt64:
 		vt = valueTypeInt
+		//nolint:unconvert
 		v = int64(int64(d.r.readUint64()))
 
 	default:
@@ -670,7 +674,7 @@ func (d *msgpackDecDriver) decodeExt(verifyTag bool, tag byte) (xtag byte, xbs [
 
 //--------------------------------------------------
 
-//MsgpackHandle is a Handle for the Msgpack Schema-Free Encoding Format.
+// MsgpackHandle is a Handle for the Msgpack Schema-Free Encoding Format.
 type MsgpackHandle struct {
 	BasicHandle
 

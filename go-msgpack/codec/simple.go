@@ -82,6 +82,7 @@ func (e *simpleEncDriver) encUint(v uint64, bd uint8) {
 	case v <= math.MaxUint32:
 		e.w.writen1(bd + 2)
 		e.w.writeUint32(uint32(v))
+	//nolint:staticcheck
 	case v <= math.MaxUint64:
 		e.w.writen1(bd + 3)
 		e.w.writeUint64(v)
@@ -211,6 +212,7 @@ func (d *simpleDecDriver) decIntAny() (ui uint64, i int64, neg bool) {
 		ui = uint64(d.r.readUint32())
 		i = int64(ui)
 	case simpleVdPosInt + 3:
+		//nolint:unconvert
 		ui = uint64(d.r.readUint64())
 		i = int64(ui)
 	case simpleVdNegInt:
@@ -226,6 +228,7 @@ func (d *simpleDecDriver) decIntAny() (ui uint64, i int64, neg bool) {
 		i = -(int64(ui))
 		neg = true
 	case simpleVdNegInt + 3:
+		//nolint:unconvert
 		ui = uint64(d.r.readUint64())
 		i = -(int64(ui))
 		neg = true
@@ -400,7 +403,6 @@ func (d *simpleDecDriver) decodeNaked() (v interface{}, vt valueType, decodeFurt
 		re.Tag = d.r.readn1()
 		re.Data = d.r.readn(l)
 		v = &re
-		vt = valueTypeExt
 	case simpleVdArray, simpleVdArray + 1, simpleVdArray + 2, simpleVdArray + 3, simpleVdArray + 4:
 		vt = valueTypeArray
 		decodeFurther = true

@@ -80,6 +80,7 @@ func (e *bincEncDriver) encodeBuiltin(rt uintptr, v interface{}) {
 }
 
 func (e *bincEncDriver) encodeNil() {
+	//nolint:staticcheck
 	e.w.writen1(bincVdSpecial<<4 | bincSpNil)
 }
 
@@ -161,6 +162,7 @@ func (e *bincEncDriver) encUint(bd byte, pos bool, v uint64) {
 	case pos && v >= 1 && v <= 16:
 		e.w.writen1(bincVdSmallInt<<4 | byte(v-1))
 	case v <= math.MaxUint8:
+		//nolint:staticcheck
 		e.w.writen2(bd|0x0, byte(v))
 	case v <= math.MaxUint16:
 		e.w.writen1(bd | 0x01)
@@ -240,6 +242,7 @@ func (e *bincEncDriver) encodeSymbol(v string) {
 		default:
 			lenprec = 3
 		}
+		//nolint:staticcheck
 		if ui <= math.MaxUint8 {
 			e.w.writen2(bincVdSymbol<<4|0x0|0x4|lenprec, byte(ui))
 		} else {
@@ -297,6 +300,7 @@ func (e *bincEncDriver) encLenNumber(bd byte, v uint64) {
 		e.w.writeUint32(uint32(v))
 	default:
 		e.w.writen1(bd | 0x03)
+		//nolint:unconvert
 		e.w.writeUint64(uint64(v))
 	}
 }
@@ -373,6 +377,7 @@ func (d *bincDecDriver) currentEncodedType() valueType {
 }
 
 func (d *bincDecDriver) tryDecodeAsNil() bool {
+	//nolint:staticcheck
 	if d.bd == bincVdSpecial<<4|bincSpNil {
 		d.bdRead = false
 		return true
@@ -451,9 +456,11 @@ func (d *bincDecDriver) decUint() (v uint64) {
 		for i := 0; i < lim; i++ {
 			d.b[i] = 0
 		}
+		//nolint:unconvert
 		v = uint64(bigen.Uint64(d.b[:]))
 	case 7:
 		d.r.readb(d.b[:])
+		//nolint:unconvert
 		v = uint64(bigen.Uint64(d.b[:]))
 	default:
 		decErr("unsigned integers with greater than 64 bits of precision not supported")
@@ -735,7 +742,6 @@ func (d *bincDecDriver) decodeNaked() (v interface{}, vt valueType, decodeFurthe
 		re.Tag = d.r.readn1()
 		re.Data = d.r.readn(l)
 		v = &re
-		vt = valueTypeExt
 	case bincVdArray:
 		vt = valueTypeArray
 		decodeFurther = true
@@ -754,17 +760,18 @@ func (d *bincDecDriver) decodeNaked() (v interface{}, vt valueType, decodeFurthe
 
 //------------------------------------
 
-//BincHandle is a Handle for the Binc Schema-Free Encoding Format
-//defined at https://github.com/ugorji/binc .
+// BincHandle is a Handle for the Binc Schema-Free Encoding Format
+// defined at https://github.com/ugorji/binc .
 //
-//BincHandle currently supports all Binc features with the following EXCEPTIONS:
-//  - only integers up to 64 bits of precision are supported.
-//    big integers are unsupported.
-//  - Only IEEE 754 binary32 and binary64 floats are supported (ie Go float32 and float64 types).
-//    extended precision and decimal IEEE 754 floats are unsupported.
-//  - Only UTF-8 strings supported.
-//    Unicode_Other Binc types (UTF16, UTF32) are currently unsupported.
-//Note that these EXCEPTIONS are temporary and full support is possible and may happen soon.
+// BincHandle currently supports all Binc features with the following EXCEPTIONS:
+//   - only integers up to 64 bits of precision are supported.
+//     big integers are unsupported.
+//   - Only IEEE 754 binary32 and binary64 floats are supported (ie Go float32 and float64 types).
+//     extended precision and decimal IEEE 754 floats are unsupported.
+//   - Only UTF-8 strings supported.
+//     Unicode_Other Binc types (UTF16, UTF32) are currently unsupported.
+//
+// Note that these EXCEPTIONS are temporary and full support is possible and may happen soon.
 type BincHandle struct {
 	BasicHandle
 }

@@ -57,6 +57,7 @@ func benchInit() {
 	approxSize = approxDataSize(reflect.ValueOf(benchTs))
 	bytesLen := 1024 * 4 * (benchDepth + 1) * (benchDepth + 1)
 	if bytesLen < approxSize {
+		//nolint:ineffassign,staticcheck
 		bytesLen = approxSize
 	}
 
@@ -108,7 +109,7 @@ func doBenchCheck(name string, encfn benchEncFn, decfn benchDecFn) {
 	if err != nil {
 		logT(nil, "\t%10s: **** Error encoding benchTs: %v", name, err)
 	}
-	encDur := time.Now().Sub(tnow)
+	encDur := time.Since(tnow)
 	encLen := len(buf)
 	runtime.GC()
 	if !benchUnscientificRes {
@@ -119,7 +120,7 @@ func doBenchCheck(name string, encfn benchEncFn, decfn benchDecFn) {
 	if err = decfn(buf, new(TestStruc)); err != nil {
 		logT(nil, "\t%10s: **** Error decoding into new TestStruc: %v", name, err)
 	}
-	decDur := time.Now().Sub(tnow)
+	decDur := time.Since(tnow)
 	logT(nil, "\t%10s: len: %d bytes, encode: %v, decode: %v\n", name, encLen, encDur, decDur)
 }
 
