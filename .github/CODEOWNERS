@@ -1,4 +1,4 @@
-* @hashicorp/consul-core-reviewers
+* @hashicorp/consul-selfmanage-maintainers
 
-/.release/                           @hashicorp/release-engineering
-/.github/workflows/ci.yml            @hashicorp/release-engineering
+/.release/                           @hashicorp/team-selfmanaged-releng
+/.github/workflows/ci.yml            @hashicorp/team-selfmanaged-releng
